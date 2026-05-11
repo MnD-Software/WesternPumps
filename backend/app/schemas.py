@@ -60,6 +60,18 @@ class UserAdminPasswordReset(BaseModel):
     must_change_password: bool = True
 
 
+class UserRoleBulkPasswordReset(BaseModel):
+    role: str
+    new_password: str = Field(min_length=10, max_length=72)
+    must_change_password: bool = True
+    active_only: bool = True
+
+
+class UserRoleBulkPasswordResetResult(BaseModel):
+    role: str
+    users_updated: int
+
+
 class UserPreferencesRead(BaseModel):
     default_landing_page: str = "/dashboard"
     dense_mode: bool = False
@@ -76,6 +88,14 @@ class TechnicianZoneRead(BaseModel):
     zone_order: int
     created_at: datetime
     updated_at: datetime
+
+
+class TechnicianZoneAdminRead(TechnicianZoneRead):
+    user_id: int
+    user_email: str
+    user_full_name: Optional[str] = None
+    user_role: str
+    user_is_active: bool
 
 
 class TechnicianZoneCreate(BaseModel):

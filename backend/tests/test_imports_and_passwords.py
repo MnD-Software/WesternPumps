@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.db import SessionLocal
 from app.main import app
 from app.models import PasswordResetToken, ProductAttachment, TechnicianZoneAssignment, User
+from app.security import verify_password
 
 
 def _xlsx_bytes(builder) -> bytes:
@@ -183,6 +184,98 @@ def test_password_change_and_reset_clear_must_change_flag() -> None:
             db.commit()
         finally:
             db.close()
+
+
+def test_bulk_password_reset_by_role_respects_active_only_and_forces_change() -> None:
+    with TestClient(app) as client:
+        create_active = client.post(
+            "/users",
+            json={
+                "email": "bulk.active.tech@gmail.com",
+                "password": "WesternPumps#26",
+                "full_name": "Bulk Active Tech",
+                "role": "technician",
+                "must_change_password": False,
+            },
+        )
+        assert create_active.status_code in {200, 201}, create_active.text
+        active_user_id = create_active.json()["id"]
+
+        create_inactive = client.post(
+            "/users",
+            json={
+                "email": "bulk.inactive.tech@gmail.com",
+                "password": "WesternPumps#26",
+                "full_name": "Bulk Inactive Tech",
+                "role": "technician",
+                "must_change_password": False,
+            },
+        )
+        assert create_inactive.status_code in {200, 201}, create_inactive.text
+        inactive_user_id = create_inactive.json()["id"]
+
+        deactivate_resp = client.delete(f"/users/{inactive_user_id}")
+        assert deactivate_resp.status_code == 200, deactivate_resp.text
+
+        reset_resp = client.post(
+            "/users/password/by-role",
+            json={
+                "role": "technician",
+                "new_password": "WesternPumps#29",
+                "must_change_password": True,
+                "active_only": True,
+            },
+        )
+        assert reset_resp.status_code == 200, reset_resp.text
+        assert reset_resp.json()["users_updated"] >= 1
+
+        db = SessionLocal()
+        try:
+            active_user = db.query(User).filter(User.id == active_user_id).first()
+            inactive_user = db.query(User).filter(User.id == inactive_user_id).first()
+            assert active_user is not None
+            assert inactive_user is not None
+            assert verify_password("WesternPumps#29", active_user.password_hash)
+            assert active_user.must_change_password is True
+            assert not verify_password("WesternPumps#29", inactive_user.password_hash)
+            assert inactive_user.must_change_password is False
+        finally:
+            db.close()
+
+
+def test_bulk_password_reset_by_role_rejects_admin_role() -> None:
+    with TestClient(app) as client:
+        reset_resp = client.post(
+            "/users/password/by-role",
+            json={
+                "role": "admin",
+                "new_password": "WesternPumps#30",
+                "must_change_password": True,
+                "active_only": True,
+            },
+        )
+        assert reset_resp.status_code == 400, reset_resp.text
+        assert "not allowed" in reset_resp.json()["detail"].lower()
+
+
+def test_admin_can_list_all_technician_zones() -> None:
+    workbook = _xlsx_bytes(_build_technician_workbook)
+    with TestClient(app) as client:
+        import_resp = client.post(
+            "/api/import/technicians-zones-xlsx",
+            files={"file": ("Technicians Details and zones.xlsx", workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert import_resp.status_code == 200, import_resp.text
+
+        zones_resp = client.get("/users/technician-zones", params={"include_inactive": True})
+        assert zones_resp.status_code == 200, zones_resp.text
+        payload = zones_resp.json()
+        assert len(payload) >= 1
+        first = payload[0]
+        assert "user_id" in first
+        assert "user_email" in first
+        assert "region_label" in first
+        assert "station_name" in first
 
         change_resp = client.post(
             "/users/me/password",

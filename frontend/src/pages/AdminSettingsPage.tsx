@@ -16,8 +16,9 @@ import {
   updateFinanceIntegration,
   type ExternalIntegration,
 } from "../api/integrations";
+import { adminResetPasswordByRole } from "../api/users";
 import { getComplianceStatus, getOutboxHealth, getSystemAbout, retryDeadOutbox, type ComplianceStatus, type OutboxHealth } from "../api/platform";
-import type { SystemAbout } from "../api/types";
+import type { SystemAbout, UserRole } from "../api/types";
 
 export default function AdminSettingsPage() {
   const { user } = useAuth();
@@ -65,6 +66,10 @@ export default function AdminSettingsPage() {
   const [accountingSecret, setAccountingSecret] = useState("");
   const [integrationSaving, setIntegrationSaving] = useState(false);
   const [integrationTesting, setIntegrationTesting] = useState(false);
+  const [bulkResetRole, setBulkResetRole] = useState<UserRole>("technician");
+  const [bulkResetPassword, setBulkResetPassword] = useState("Westernpumps@26");
+  const [bulkResetActiveOnly, setBulkResetActiveOnly] = useState(true);
+  const [bulkResetLoading, setBulkResetLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -367,6 +372,25 @@ export default function AdminSettingsPage() {
       setError(getApiErrorMessage(err, "Failed to run integration test"));
     } finally {
       setIntegrationTesting(false);
+    }
+  }
+
+  async function handleBulkRolePasswordReset() {
+    setBulkResetLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await adminResetPasswordByRole({
+        role: bulkResetRole,
+        new_password: bulkResetPassword,
+        must_change_password: true,
+        active_only: bulkResetActiveOnly,
+      });
+      setSuccess(`Password reset for role '${res.role}' completed. Updated ${res.users_updated} user(s).`);
+    } catch (err: any) {
+      setError(getApiErrorMessage(err, "Failed to reset passwords by role"));
+    } finally {
+      setBulkResetLoading(false);
     }
   }
 
@@ -792,6 +816,57 @@ export default function AdminSettingsPage() {
               Test Connection
             </Button>
           </Space>
+        </Form>
+      </Card>
+      <Card style={{ marginTop: 16 }}>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          Password Operations
+        </Typography.Title>
+        <Typography.Paragraph type="secondary">
+          Reset passwords in bulk for one role and force password change on next login.
+        </Typography.Paragraph>
+        <Form layout="vertical">
+          <div className="reports-filter-grid">
+            <Form.Item label="Target Role">
+              <Select<UserRole> value={bulkResetRole} onChange={setBulkResetRole}>
+                <Select.Option value="technician">technician</Select.Option>
+                <Select.Option value="lead_technician">lead_technician</Select.Option>
+                <Select.Option value="staff">staff</Select.Option>
+                <Select.Option value="store_manager">store_manager</Select.Option>
+                <Select.Option value="manager">manager</Select.Option>
+                <Select.Option value="approver">approver</Select.Option>
+                <Select.Option value="finance">finance</Select.Option>
+                <Select.Option value="rider">rider</Select.Option>
+                <Select.Option value="driver">driver</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item label="New Password">
+              <Input.Password value={bulkResetPassword} onChange={(e) => setBulkResetPassword(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Scope">
+              <Space style={{ marginTop: 6 }}>
+                <Switch checked={bulkResetActiveOnly} onChange={setBulkResetActiveOnly} />
+                <Typography.Text>Active users only</Typography.Text>
+              </Space>
+            </Form.Item>
+          </div>
+          <Button
+            danger
+            loading={bulkResetLoading}
+            onClick={() =>
+              Modal.confirm({
+                title: "Reset passwords for selected role?",
+                content: "This will overwrite current passwords for all matching users and require password change at next login.",
+                okText: "Reset Passwords",
+                okButtonProps: { danger: true },
+                onOk: async () => {
+                  await handleBulkRolePasswordReset();
+                },
+              })
+            }
+          >
+            Reset Passwords by Role
+          </Button>
         </Form>
       </Card>
       <Card style={{ marginTop: 16 }}>

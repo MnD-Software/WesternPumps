@@ -30,6 +30,14 @@ export type TechnicianZone = {
   updated_at: string;
 };
 
+export type TechnicianZoneAdminRow = TechnicianZone & {
+  user_id: number;
+  user_email: string;
+  user_full_name?: string | null;
+  user_role: string;
+  user_is_active: boolean;
+};
+
 export type UserPreferences = {
   default_landing_page: string;
   dense_mode: boolean;

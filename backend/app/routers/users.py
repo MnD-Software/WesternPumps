@@ -14,6 +14,7 @@ from app.deps import get_current_user, require_admin, require_roles
 from app.models import TechnicianZoneAssignment, User, UserPreference
 from app.schemas import (
     TechnicianZoneCreate,
+    TechnicianZoneAdminRead,
     TechnicianZoneRead,
     TechnicianZoneUpdate,
     UserAdminPasswordReset,
@@ -22,12 +23,15 @@ from app.schemas import (
     UserPreferencesRead,
     UserPreferencesUpdate,
     UserRead,
+    UserRoleBulkPasswordReset,
+    UserRoleBulkPasswordResetResult,
     UserUpdate,
 )
 from app.security import get_password_hash, verify_password
 
 
 router = APIRouter(prefix="/users", tags=["users"])
+VALID_USER_ROLES = {"admin", "technician", "lead_technician", "store_manager", "manager", "approver", "finance", "staff", "rider", "driver"}
 ALLOWED_LANDING_PAGES = {
     "/console",
     "/dashboard",
@@ -81,7 +85,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserRead:
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
-    if payload.role not in {"admin", "technician", "lead_technician", "store_manager", "manager", "approver", "finance", "staff", "rider", "driver"}:
+    if payload.role not in VALID_USER_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
     try:
@@ -121,7 +125,7 @@ def update_user(
         changes["phone"] = (changes["phone"] or "").strip() or None
     if "role" in changes:
         role = changes["role"]
-        if role not in {"admin", "technician", "lead_technician", "store_manager", "manager", "approver", "finance", "staff", "rider", "driver"}:
+        if role not in VALID_USER_ROLES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
         if user.id == current_user.id and role != "admin":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove your own admin role")
@@ -185,6 +189,47 @@ def reset_user_password(
             detail="Database write failed during password reset. Check DB path/permissions and try again.",
         )
     return None
+
+
+@router.post("/password/by-role", response_model=UserRoleBulkPasswordResetResult, dependencies=[Depends(require_admin)])
+def reset_user_password_by_role(
+    payload: UserRoleBulkPasswordReset,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserRoleBulkPasswordResetResult:
+    role = (payload.role or "").strip().lower()
+    if role not in VALID_USER_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+    if role == "admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bulk reset for admin role is not allowed")
+
+    query = select(User).where(User.role == role)
+    if payload.active_only:
+        query = query.where(User.is_active.is_(True))
+    users = db.scalars(query).all()
+    if not users:
+        return UserRoleBulkPasswordResetResult(role=role, users_updated=0)
+
+    try:
+        password_hash = get_password_hash(payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    updated = 0
+    for user in users:
+        user.password_hash = password_hash
+        user.must_change_password = bool(payload.must_change_password)
+        updated += 1
+
+    log_audit(
+        db,
+        current_user,
+        "password_reset_by_role",
+        "user",
+        detail={"role": role, "users_updated": updated, "active_only": bool(payload.active_only)},
+    )
+    db.commit()
+    return UserRoleBulkPasswordResetResult(role=role, users_updated=updated)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_roles("approver", "manager"))])
@@ -281,6 +326,40 @@ def list_my_zones(
         .order_by(TechnicianZoneAssignment.zone_order.asc(), TechnicianZoneAssignment.id.asc())
     ).all()
     return [TechnicianZoneRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.get("/technician-zones", response_model=list[TechnicianZoneAdminRead], dependencies=[Depends(require_admin)])
+def list_all_technician_zones(
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> list[TechnicianZoneAdminRead]:
+    technician_roles = ["technician", "lead_technician", "staff"]
+    stmt = (
+        select(User, TechnicianZoneAssignment)
+        .join(TechnicianZoneAssignment, TechnicianZoneAssignment.user_id == User.id)
+        .where(User.role.in_(technician_roles))
+        .order_by(User.full_name.asc(), User.email.asc(), TechnicianZoneAssignment.zone_order.asc(), TechnicianZoneAssignment.id.asc())
+    )
+    if not include_inactive:
+        stmt = stmt.where(User.is_active.is_(True))
+    rows = db.execute(stmt).all()
+    return [
+        TechnicianZoneAdminRead(
+            id=zone.id,
+            region_label=zone.region_label,
+            station_name=zone.station_name,
+            client_code=zone.client_code,
+            zone_order=zone.zone_order,
+            created_at=zone.created_at,
+            updated_at=zone.updated_at,
+            user_id=user.id,
+            user_email=_sanitize_email(user.email, user.id),
+            user_full_name=user.full_name,
+            user_role=user.role,
+            user_is_active=bool(user.is_active),
+        )
+        for user, zone in rows
+    ]
 
 
 @router.get("/{user_id}/zones", response_model=list[TechnicianZoneRead], dependencies=[Depends(require_admin)])

@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { TechnicianZone, User, UserPreferences, UserRole } from "./types";
+import type { TechnicianZone, TechnicianZoneAdminRow, User, UserPreferences, UserRole } from "./types";
 
 export type CreateUserPayload = {
   email: string;
@@ -53,8 +53,21 @@ export async function adminResetUserPassword(userId: number, newPassword: string
   await api.post(`/users/${userId}/password`, { new_password: newPassword, must_change_password: true });
 }
 
+export async function adminResetPasswordByRole(payload: {
+  role: UserRole;
+  new_password: string;
+  must_change_password?: boolean;
+  active_only?: boolean;
+}): Promise<{ role: string; users_updated: number }> {
+  return (await api.post<{ role: string; users_updated: number }>("/users/password/by-role", payload)).data;
+}
+
 export async function listUserZones(userId: number): Promise<TechnicianZone[]> {
   return (await api.get<TechnicianZone[]>(`/users/${userId}/zones`)).data;
+}
+
+export async function listAllTechnicianZones(includeInactive = false): Promise<TechnicianZoneAdminRow[]> {
+  return (await api.get<TechnicianZoneAdminRow[]>("/users/technician-zones", { params: includeInactive ? { include_inactive: true } : undefined })).data;
 }
 
 export async function createUserZone(

@@ -11,13 +11,14 @@ import {
   deactivateUser,
   hardDeleteUser,
   importTechniciansZonesXlsx,
+  listAllTechnicianZones,
   listUserZones,
   listUsers,
   reactivateUser,
   updateUserZone,
   updateUser
 } from "../api/users";
-import type { TechnicianZone, User, UserRole } from "../api/types";
+import type { TechnicianZone, TechnicianZoneAdminRow, User, UserRole } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
 import { useAuth } from "../state/AuthContext";
 import { formatDateTime } from "../utils/datetime";
@@ -66,6 +67,7 @@ export default function UsersPage() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [zonesUser, setZonesUser] = useState<User | null>(null);
   const [zones, setZones] = useState<TechnicianZone[]>([]);
+  const [technicianZones, setTechnicianZones] = useState<TechnicianZoneAdminRow[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
   const [zoneSaving, setZoneSaving] = useState(false);
   const [editingZone, setEditingZone] = useState<TechnicianZone | null>(null);
@@ -78,7 +80,9 @@ export default function UsersPage() {
     setLoading(true);
     setError(null);
     try {
-      setUsers(await listUsers());
+      const [usersRes, zonesRes] = await Promise.all([listUsers(), listAllTechnicianZones(true)]);
+      setUsers(usersRes);
+      setTechnicianZones(zonesRes);
     } catch (err: any) {
       setError(getApiErrorMessage(err, "Failed to load users"));
     } finally {
@@ -256,6 +260,11 @@ export default function UsersPage() {
     } finally {
       setZonesLoading(false);
     }
+  }
+
+  function openZonesEditor(userId: number) {
+    const selected = users.find((u) => u.id === userId);
+    if (selected) void openZones(selected);
   }
 
   function startCreateZone() {
@@ -487,6 +496,65 @@ export default function UsersPage() {
             columns={columns}
             pagination={{ pageSize: 12, showSizeChanger: true }}
             locale={{ emptyText: "No users yet." }}
+          />
+        </Card>
+        <Card
+          title="Technician Zones (All)"
+          extra={
+            <Button onClick={refresh} disabled={loading}>
+              Refresh
+            </Button>
+          }
+          style={{ gridColumn: "1 / -1" }}
+        >
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={technicianZones}
+            pagination={{ pageSize: 15, showSizeChanger: true }}
+            columns={[
+              { title: "Technician", key: "tech_name", render: (_: unknown, row: TechnicianZoneAdminRow) => row.user_full_name || row.user_email },
+              { title: "Email", dataIndex: "user_email", key: "user_email" },
+              { title: "Role", dataIndex: "user_role", key: "user_role" },
+              { title: "Status", key: "status", render: (_: unknown, row: TechnicianZoneAdminRow) => (row.user_is_active ? "Active" : "Inactive") },
+              { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
+              { title: "Region", dataIndex: "region_label", key: "region_label" },
+              { title: "Station", dataIndex: "station_name", key: "station_name" },
+              { title: "Client", dataIndex: "client_code", key: "client_code", render: (value: string | null) => value || "-" },
+              {
+                title: "Actions",
+                key: "actions",
+                render: (_: unknown, row: TechnicianZoneAdminRow) => (
+                  <Space>
+                    <Button onClick={() => openZonesEditor(row.user_id)}>Edit</Button>
+                    <Button
+                      danger
+                      onClick={() =>
+                        Modal.confirm({
+                          title: "Delete zone?",
+                          content: "This deletes this zone assignment for the technician.",
+                          okText: "Delete",
+                          okButtonProps: { danger: true },
+                          onOk: async () => {
+                            try {
+                              await deleteUserZone(row.user_id, row.id);
+                              message.success("Zone deleted");
+                              await refresh();
+                              if (zonesUser?.id === row.user_id) setZones(await listUserZones(row.user_id));
+                            } catch (err: any) {
+                              setError(getApiErrorMessage(err, "Failed to delete zone"));
+                            }
+                          }
+                        })
+                      }
+                    >
+                      Delete
+                    </Button>
+                  </Space>
+                )
+              }
+            ]}
+            locale={{ emptyText: "No technician zones available." }}
           />
         </Card>
       </div>

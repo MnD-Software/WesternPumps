@@ -207,6 +207,16 @@ export default function InventoryPage() {
   const [searchInput, setSearchInput] = useState("");
   const [q, setQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [outOfStockOnly, setOutOfStockOnly] = useState(false);
+  const [filterCategoryId, setFilterCategoryId] = useState<number | "">("");
+  const [filterLocationId, setFilterLocationId] = useState<number | "">("");
+  const [filterSupplierId, setFilterSupplierId] = useState<number | "">("");
+  const [filterTrackingType, setFilterTrackingType] = useState<"BATCH" | "INDIVIDUAL" | "">("");
+  const [filterMinPrice, setFilterMinPrice] = useState<string>("");
+  const [filterMaxPrice, setFilterMaxPrice] = useState<string>("");
+  const [filterMinQoh, setFilterMinQoh] = useState<string>("");
+  const [filterMaxQoh, setFilterMaxQoh] = useState<string>("");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -291,29 +301,37 @@ export default function InventoryPage() {
     setLoading(true);
     setListError(null);
     try {
-      if (lowOnly) {
-        const low = await listLowStock({ limit: 500, q: q || undefined });
-        setItems(low);
-        setTotal(low.length);
-      } else {
-        const data = await listItems({
-          page,
-          page_size: pageSize,
-          q: q || undefined,
-          sort,
-          direction,
-          include_inactive: true
-        });
-        setItems(data.items);
-        setTotal(data.total);
-      }
+      const stockState = lowOnly ? "low" : inStockOnly ? "in" : outOfStockOnly ? "out" : undefined;
+      const minPrice = toFloat(filterMinPrice);
+      const maxPrice = toFloat(filterMaxPrice);
+      const minQoh = toInt(filterMinQoh);
+      const maxQoh = toInt(filterMaxQoh);
+      const data = await listItems({
+        page,
+        page_size: pageSize,
+        q: q || undefined,
+        sort,
+        direction,
+        include_inactive: true,
+        stock_state: stockState,
+        category_id: filterCategoryId === "" ? undefined : Number(filterCategoryId),
+        location_id: filterLocationId === "" ? undefined : Number(filterLocationId),
+        supplier_id: filterSupplierId === "" ? undefined : Number(filterSupplierId),
+        tracking_type: filterTrackingType === "" ? undefined : filterTrackingType,
+        min_unit_price: minPrice == null ? undefined : minPrice,
+        max_unit_price: maxPrice == null ? undefined : maxPrice,
+        min_quantity_on_hand: minQoh == null ? undefined : minQoh,
+        max_quantity_on_hand: maxQoh == null ? undefined : maxQoh,
+      });
+      setItems(data.items);
+      setTotal(data.total);
       await loadReorder();
     } catch (err: any) {
       setListError(getApiErrorMessage(err, "Failed to load inventory"));
     } finally {
       setLoading(false);
     }
-  }, [direction, loadReorder, lowOnly, page, pageSize, q, sort]);
+  }, [direction, loadReorder, lowOnly, inStockOnly, outOfStockOnly, filterCategoryId, filterLocationId, filterSupplierId, filterTrackingType, filterMinPrice, filterMaxPrice, filterMinQoh, filterMaxQoh, page, pageSize, q, sort]);
 
   useEffect(() => {
     refresh();
@@ -1945,11 +1963,149 @@ export default function InventoryPage() {
                   checked={lowOnly}
                   onChange={(e) => {
                     setPage(1);
-                    setLowOnly(e.target.checked);
+                    const checked = e.target.checked;
+                    setLowOnly(checked);
+                    if (checked) {
+                      setInStockOnly(false);
+                      setOutOfStockOnly(false);
+                    }
                   }}
                 >
                   Low stock only
                 </Checkbox>
+              </Form.Item>
+              <Form.Item>
+                <Checkbox
+                  checked={inStockOnly}
+                  onChange={(e) => {
+                    setPage(1);
+                    const checked = e.target.checked;
+                    setInStockOnly(checked);
+                    if (checked) {
+                      setLowOnly(false);
+                      setOutOfStockOnly(false);
+                    }
+                  }}
+                >
+                  In stock only
+                </Checkbox>
+              </Form.Item>
+              <Form.Item>
+                <Checkbox
+                  checked={outOfStockOnly}
+                  onChange={(e) => {
+                    setPage(1);
+                    const checked = e.target.checked;
+                    setOutOfStockOnly(checked);
+                    if (checked) {
+                      setLowOnly(false);
+                      setInStockOnly(false);
+                    }
+                  }}
+                >
+                  Out of stock only
+                </Checkbox>
+              </Form.Item>
+              <Form.Item label="Category">
+                <Select<number>
+                  allowClear
+                  value={filterCategoryId === "" ? undefined : filterCategoryId}
+                  onChange={(value) => {
+                    setPage(1);
+                    setFilterCategoryId(value ?? "");
+                  }}
+                  style={{ minWidth: 180 }}
+                >
+                  {categories.map((c) => (
+                    <Select.Option key={c.id} value={c.id}>
+                      {c.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="Location">
+                <Select<number>
+                  allowClear
+                  value={filterLocationId === "" ? undefined : filterLocationId}
+                  onChange={(value) => {
+                    setPage(1);
+                    setFilterLocationId(value ?? "");
+                  }}
+                  style={{ minWidth: 170 }}
+                >
+                  {locations.map((l) => (
+                    <Select.Option key={l.id} value={l.id}>
+                      {l.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="Supplier">
+                <Select<number>
+                  allowClear
+                  value={filterSupplierId === "" ? undefined : filterSupplierId}
+                  onChange={(value) => {
+                    setPage(1);
+                    setFilterSupplierId(value ?? "");
+                  }}
+                  style={{ minWidth: 190 }}
+                >
+                  {suppliers.map((s) => (
+                    <Select.Option key={s.id} value={s.id}>
+                      {s.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item label="Tracking">
+                <Select
+                  allowClear
+                  value={filterTrackingType || undefined}
+                  onChange={(value) => {
+                    setPage(1);
+                    setFilterTrackingType((value as "BATCH" | "INDIVIDUAL" | undefined) ?? "");
+                  }}
+                  style={{ width: 150 }}
+                >
+                  <Select.Option value="BATCH">BATCH</Select.Option>
+                  <Select.Option value="INDIVIDUAL">INDIVIDUAL</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item label="Min Price">
+                <Input
+                  type="number"
+                  min={0}
+                  value={filterMinPrice}
+                  onChange={(e) => setFilterMinPrice(e.target.value)}
+                  style={{ width: 120 }}
+                />
+              </Form.Item>
+              <Form.Item label="Max Price">
+                <Input
+                  type="number"
+                  min={0}
+                  value={filterMaxPrice}
+                  onChange={(e) => setFilterMaxPrice(e.target.value)}
+                  style={{ width: 120 }}
+                />
+              </Form.Item>
+              <Form.Item label="Min QOH">
+                <Input
+                  type="number"
+                  min={0}
+                  value={filterMinQoh}
+                  onChange={(e) => setFilterMinQoh(e.target.value)}
+                  style={{ width: 120 }}
+                />
+              </Form.Item>
+              <Form.Item label="Max QOH">
+                <Input
+                  type="number"
+                  min={0}
+                  value={filterMaxQoh}
+                  onChange={(e) => setFilterMaxQoh(e.target.value)}
+                  style={{ width: 120 }}
+                />
               </Form.Item>
             </Form>
           )}
@@ -1969,6 +2125,10 @@ export default function InventoryPage() {
                   mobileItemCards
                 ) : lowOnly ? (
                   <SmartEmptyState compact title="No low stock items" description="Everything is currently above its minimum threshold." />
+                ) : inStockOnly ? (
+                  <SmartEmptyState compact title="No in-stock items" description="No items currently have quantity above zero." />
+                ) : outOfStockOnly ? (
+                  <SmartEmptyState compact title="No out-of-stock items" description="No items currently have quantity at zero." />
                 ) : (
                   <SmartEmptyState compact title="No items found" description="Try adjusting filters or create a new item." />
                 )}
@@ -1987,6 +2147,10 @@ export default function InventoryPage() {
               locale={{
                 emptyText: lowOnly ? (
                   <SmartEmptyState compact title="No low stock items" description="Everything is currently above its minimum threshold." />
+                ) : inStockOnly ? (
+                  <SmartEmptyState compact title="No in-stock items" description="No items currently have quantity above zero." />
+                ) : outOfStockOnly ? (
+                  <SmartEmptyState compact title="No out-of-stock items" description="No items currently have quantity at zero." />
                 ) : (
                   <SmartEmptyState compact title="No items found" description="Try adjusting filters or create a new item." />
                 )
@@ -1994,7 +2158,7 @@ export default function InventoryPage() {
             />
           )}
 
-          {!loading && !lowOnly ? (
+          {!loading ? (
             <Space style={{ marginTop: 12, display: "flex", justifyContent: "space-between" }}>
               <Typography.Text type="secondary">
                 Page {page} of {totalPages} | Total {total}

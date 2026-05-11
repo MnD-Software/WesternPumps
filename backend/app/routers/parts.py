@@ -235,6 +235,15 @@ def list_items(
     sort: str = Query("name", max_length=50),
     direction: str = Query("asc", max_length=4),
     include_inactive: bool = Query(False),
+    stock_state: str | None = Query(None, max_length=10),
+    category_id: int | None = Query(None, ge=1),
+    location_id: int | None = Query(None, ge=1),
+    supplier_id: int | None = Query(None, ge=1),
+    tracking_type: str | None = Query(None, max_length=20),
+    min_unit_price: float | None = Query(None, ge=0),
+    max_unit_price: float | None = Query(None, ge=0),
+    min_quantity_on_hand: int | None = Query(None, ge=0),
+    max_quantity_on_hand: int | None = Query(None, ge=0),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedItems:
     q_value = q.strip() if q else None
@@ -250,6 +259,47 @@ def list_items(
         where = or_(Part.sku.like(like), Part.name.like(like))
         stmt = stmt.where(where)
         count_stmt = count_stmt.where(where)
+
+    if stock_state:
+        state = stock_state.strip().lower()
+        if state == "low":
+            where = Part.quantity_on_hand <= Part.min_quantity
+        elif state == "in":
+            where = Part.quantity_on_hand > 0
+        elif state == "out":
+            where = Part.quantity_on_hand <= 0
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid stock_state. Use low, in, or out.")
+        stmt = stmt.where(where)
+        count_stmt = count_stmt.where(where)
+
+    if category_id is not None:
+        stmt = stmt.where(Part.category_id == category_id)
+        count_stmt = count_stmt.where(Part.category_id == category_id)
+    if location_id is not None:
+        stmt = stmt.where(Part.location_id == location_id)
+        count_stmt = count_stmt.where(Part.location_id == location_id)
+    if supplier_id is not None:
+        stmt = stmt.where(Part.supplier_id == supplier_id)
+        count_stmt = count_stmt.where(Part.supplier_id == supplier_id)
+    if tracking_type:
+        value = tracking_type.strip().upper()
+        if value not in {"BATCH", "INDIVIDUAL"}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tracking_type filter")
+        stmt = stmt.where(Part.tracking_type == value)
+        count_stmt = count_stmt.where(Part.tracking_type == value)
+    if min_unit_price is not None:
+        stmt = stmt.where(func.coalesce(Part.unit_price, 0) >= min_unit_price)
+        count_stmt = count_stmt.where(func.coalesce(Part.unit_price, 0) >= min_unit_price)
+    if max_unit_price is not None:
+        stmt = stmt.where(func.coalesce(Part.unit_price, 0) <= max_unit_price)
+        count_stmt = count_stmt.where(func.coalesce(Part.unit_price, 0) <= max_unit_price)
+    if min_quantity_on_hand is not None:
+        stmt = stmt.where(Part.quantity_on_hand >= min_quantity_on_hand)
+        count_stmt = count_stmt.where(Part.quantity_on_hand >= min_quantity_on_hand)
+    if max_quantity_on_hand is not None:
+        stmt = stmt.where(Part.quantity_on_hand <= max_quantity_on_hand)
+        count_stmt = count_stmt.where(Part.quantity_on_hand <= max_quantity_on_hand)
 
     sort_map = {
         "name": Part.name,

@@ -5,6 +5,15 @@ export type ListItemsParams = {
   page?: number;
   page_size?: number;
   q?: string;
+  stock_state?: "low" | "in" | "out";
+  category_id?: number;
+  location_id?: number;
+  supplier_id?: number;
+  tracking_type?: "BATCH" | "INDIVIDUAL";
+  min_unit_price?: number;
+  max_unit_price?: number;
+  min_quantity_on_hand?: number;
+  max_quantity_on_hand?: number;
   sort?: "name" | "sku" | "quantity_on_hand" | "min_quantity" | "created_at" | "updated_at";
   direction?: "asc" | "desc";
   include_inactive?: boolean;

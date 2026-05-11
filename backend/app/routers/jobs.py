@@ -17,6 +17,16 @@ from app.schemas import JobCreate, JobRead, JobUpdate
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+def _can_access_job_assets(current_user: User, job: Job) -> bool:
+    role = (current_user.role or "").strip().lower()
+    if role in {"admin", "manager", "store_manager", "approver", "finance"}:
+        return True
+    return (
+        (job.assigned_to_user_id is not None and job.assigned_to_user_id == current_user.id)
+        or (job.created_by_user_id is not None and job.created_by_user_id == current_user.id)
+    )
+
+
 @router.get("", response_model=list[JobRead], dependencies=[Depends(get_current_user)])
 def list_jobs(db: Session = Depends(get_db)) -> list[JobRead]:
     jobs = db.scalars(select(Job).order_by(Job.created_at.desc())).all()
@@ -189,6 +199,8 @@ async def upload_job_photo(
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if not _can_access_job_assets(current_user, job):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only upload photos for jobs assigned to you")
 
     content = await file.read()
     if not content:
@@ -233,11 +245,14 @@ async def upload_job_photo(
 def list_job_photos(
     job_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """List all photos for a job card."""
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if not _can_access_job_assets(current_user, job):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     photos = db.scalars(select(JobPhoto).where(JobPhoto.job_id == job_id).order_by(desc(JobPhoto.created_at))).all()
 
@@ -261,11 +276,17 @@ def download_job_photo(
     job_id: int,
     photo_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Download a job photo."""
     photo = db.get(JobPhoto, photo_id)
     if not photo or photo.job_id != job_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if not _can_access_job_assets(current_user, job):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     headers = {"Content-Disposition": f'inline; filename="{photo.file_name}"'}
     return Response(
@@ -291,6 +312,11 @@ def delete_job_photo(
     photo = db.get(JobPhoto, photo_id)
     if not photo or photo.job_id != job_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+    job = db.get(Job, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if not _can_access_job_assets(current_user, job):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
     db.delete(photo)
     log_audit(db, current_user, "delete", "job_photo", entity_id=photo_id)

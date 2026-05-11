@@ -752,8 +752,8 @@ class RequestService:
     ) -> None:
         if quantity <= 0:
             raise ServiceError("Quantity must be positive", 400)
-        if quantity > req_line.quantity:
-            raise ServiceError("Quantity exceeds requested amount", 400)
+        if quantity != req_line.quantity:
+            raise ServiceError("Batch issue quantity must match requested quantity exactly", 400)
         if part.quantity_on_hand < quantity:
             raise ServiceError("Insufficient stock", 400)
 

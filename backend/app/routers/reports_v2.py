@@ -21,6 +21,7 @@ from app.models import (
     StockTransactionType,
     Invoice, InvoiceLine, Payment, JobCosting, JobSchedule,
     BatchUsageRecord, UsageRecord, StockRequest, PurchaseOrder,
+    TechnicianZoneAssignment,
     CustomReportDefinition
 )
 
@@ -861,6 +862,23 @@ class StockUsageByTechnicianResponse(BaseModel):
     parts_list: list[dict]
 
 
+class IssuanceKpiResponse(BaseModel):
+    total_issue_transactions: int
+    total_issue_quantity: int
+    total_issue_value: float
+    avg_issue_value: float
+    pending_returns: int
+    return_approval_rate_percent: float
+
+
+class TechnicianZoneCoverageResponse(BaseModel):
+    technician_id: int
+    technician_name: str
+    zone_count: int
+    regions: list[str]
+    stations: list[str]
+
+
 @router.get("/store-manager/usage-by-technician", response_model=list[StockUsageByTechnicianResponse])
 def get_stock_usage_by_technician(
     start_date: Optional[date] = None,
@@ -934,6 +952,112 @@ def get_stock_usage_by_technician(
         )
 
     results.sort(key=lambda x: x["total_value"], reverse=True)
+    return results
+
+
+@router.get("/store-manager/issuance-kpis", response_model=IssuanceKpiResponse)
+def get_store_manager_issuance_kpis(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
+):
+    _, _, start_dt, end_dt = _coerce_date_range(start_date=start_date, end_date=end_date, default_days=30, max_days=180)
+
+    issue_filters = [
+        StockTransaction.transaction_type == StockTransactionType.OUT,
+        StockTransaction.created_at >= start_dt,
+        StockTransaction.created_at <= end_dt,
+        StockTransaction.movement_type == "ISSUE",
+    ]
+    pending_filters = [
+        StockTransaction.movement_type == "RETURN_PENDING",
+        StockTransaction.created_at >= start_dt,
+        StockTransaction.created_at <= end_dt,
+    ]
+    resolved_filters = [
+        StockTransaction.movement_type.in_(["RETURN_APPROVED", "RETURN_REJECTED"]),
+        StockTransaction.created_at >= start_dt,
+        StockTransaction.created_at <= end_dt,
+    ]
+    approved_filters = [
+        StockTransaction.movement_type == "RETURN_APPROVED",
+        StockTransaction.created_at >= start_dt,
+        StockTransaction.created_at <= end_dt,
+    ]
+
+    qty_abs = func.abs(StockTransaction.quantity_delta)
+    unit_price = func.coalesce(Part.unit_price, 0)
+
+    issue_rows = db.execute(
+        select(
+            func.count(StockTransaction.id).label("tx_count"),
+            func.coalesce(func.sum(qty_abs), 0).label("qty_sum"),
+            func.coalesce(func.sum(qty_abs * unit_price), 0).label("value_sum"),
+        )
+        .select_from(StockTransaction)
+        .join(Part, Part.id == StockTransaction.part_id)
+        .where(*issue_filters)
+    ).one()
+
+    pending_returns = int(
+        db.scalar(select(func.count(StockTransaction.id)).where(*pending_filters)) or 0
+    )
+    resolved_returns = int(
+        db.scalar(select(func.count(StockTransaction.id)).where(*resolved_filters)) or 0
+    )
+    approved_returns = int(
+        db.scalar(select(func.count(StockTransaction.id)).where(*approved_filters)) or 0
+    )
+
+    total_issue_transactions = int(issue_rows.tx_count or 0)
+    total_issue_value = float(issue_rows.value_sum or 0)
+    avg_issue_value = (total_issue_value / total_issue_transactions) if total_issue_transactions else 0.0
+    approval_rate = (approved_returns / resolved_returns * 100.0) if resolved_returns else 0.0
+
+    return {
+        "total_issue_transactions": total_issue_transactions,
+        "total_issue_quantity": int(issue_rows.qty_sum or 0),
+        "total_issue_value": round(total_issue_value, 2),
+        "avg_issue_value": round(avg_issue_value, 2),
+        "pending_returns": pending_returns,
+        "return_approval_rate_percent": round(approval_rate, 2),
+    }
+
+
+@router.get("/store-manager/technician-zones", response_model=list[TechnicianZoneCoverageResponse])
+def get_technician_zone_coverage(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
+):
+    tech_rows = db.execute(
+        select(User.id, User.full_name, User.email)
+        .where(User.role.in_(["technician", "lead_technician"]))
+        .order_by(User.full_name.asc(), User.email.asc())
+    ).all()
+
+    results: list[dict[str, Any]] = []
+    for tech in tech_rows:
+        zones = db.execute(
+            select(
+                TechnicianZoneAssignment.region_label,
+                TechnicianZoneAssignment.station_name,
+            )
+            .where(TechnicianZoneAssignment.user_id == tech.id)
+            .order_by(TechnicianZoneAssignment.zone_order.asc(), TechnicianZoneAssignment.id.asc())
+        ).all()
+        regions = sorted({str(z.region_label).strip() for z in zones if str(z.region_label or "").strip()})
+        stations = [str(z.station_name).strip() for z in zones if str(z.station_name or "").strip()]
+        results.append(
+            {
+                "technician_id": int(tech.id),
+                "technician_name": tech.full_name or tech.email,
+                "zone_count": len(stations),
+                "regions": regions,
+                "stations": stations,
+            }
+        )
+    results.sort(key=lambda row: (-row["zone_count"], str(row["technician_name"]).lower()))
     return results
 
 

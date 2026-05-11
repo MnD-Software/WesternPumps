@@ -5,6 +5,9 @@ import { useAuth } from "../state/AuthContext";
 import { getMyStockUsage, getMyFrequentlyUsedItems, type TechnicianFrequentItem } from "../api/reportsV2";
 import { listJobs } from "../api/jobs";
 import { downloadReport } from "../api/reports";
+import { listMyZones } from "../api/users";
+import { listMyIssuedItems } from "../api/requests";
+import type { TechnicianZone } from "../api/types";
 import type { Job } from "../api/types";
 import dayjs from "dayjs";
 
@@ -24,7 +27,10 @@ export default function TechnicianReportsPage() {
     completedJobs: 0,
     inProgressJobs: 0,
     totalItemsUsed: 0,
+    openIssuedItems: 0,
+    openIssuedBatchQty: 0,
   });
+  const [zones, setZones] = useState<TechnicianZone[]>([]);
 
   // Initialize dates
   useEffect(() => {
@@ -44,10 +50,12 @@ export default function TechnicianReportsPage() {
     try {
       setLoading(true);
       
-      const [jobsRes, usageRes, frequentRes] = await Promise.all([
+      const [jobsRes, usageRes, frequentRes, zonesRes, issuedRes] = await Promise.all([
         listJobs(),
         getMyStockUsage(startDate, endDate),
         getMyFrequentlyUsedItems(startDate, endDate),
+        listMyZones(),
+        listMyIssuedItems(),
       ]);
       
       // Filter jobs to only show current user's jobs
@@ -60,12 +68,15 @@ export default function TechnicianReportsPage() {
       
       setMyJobs(myJobsList);
       setFrequentItems(items);
+      setZones(zonesRes || []);
       
       setStats({
         totalJobs: myJobsList.length,
         completedJobs: myJobsList.filter((j: Job) => j.status === "completed").length,
         inProgressJobs: myJobsList.filter((j: Job) => j.status === "in_progress" || j.status === "assigned").length,
         totalItemsUsed: myUsage?.total_parts_used || 0,
+        openIssuedItems: issuedRes?.instances?.length || 0,
+        openIssuedBatchQty: (issuedRes?.batches || []).reduce((sum, row) => sum + Number(row.quantity_remaining || 0), 0),
       });
     } catch (error) {
       console.error("Failed to load report data:", error);
@@ -218,6 +229,27 @@ export default function TechnicianReportsPage() {
           </Card>
         </Col>
       </Row>
+
+      <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic title="Open Issued Serials" value={stats.openIssuedItems} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic title="Open Batch Qty" value={stats.openIssuedBatchQty} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={12}>
+          <Card>
+            <Statistic title="Assigned Zones" value={zones.length} />
+            <Text type="secondary">
+              {zones.slice(0, 2).map((z) => z.station_name).join(", ") || "No zones assigned"}
+            </Text>
+          </Card>
+        </Col>
+      </Row>
       
       <Card 
         title="Frequently Used Items" 
@@ -245,6 +277,21 @@ export default function TechnicianReportsPage() {
           rowKey="id"
           loading={loading}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: "max-content" }}
+        />
+      </Card>
+      <Card title="My Zones" style={{ marginTop: 24 }}>
+        <Table
+          dataSource={zones}
+          rowKey="id"
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+          columns={[
+            { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
+            { title: "Region", dataIndex: "region_label", key: "region_label" },
+            { title: "Station", dataIndex: "station_name", key: "station_name" },
+            { title: "Client", dataIndex: "client_code", key: "client_code", render: (v: string | null) => v || "-" },
+          ]}
           scroll={{ x: "max-content" }}
         />
       </Card>

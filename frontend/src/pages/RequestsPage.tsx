@@ -59,10 +59,14 @@ function normalizeScanToken(raw: string): string {
   try {
     if (/^https?:\/\//i.test(value)) {
       const url = new URL(value);
+      const sku = url.searchParams.get("sku");
+      if (sku) return sku.trim();
       const serial = url.searchParams.get("serial") || url.searchParams.get("sn");
       if (serial) return serial.trim();
       const segments = url.pathname.split("/").filter(Boolean);
-      if (segments.length > 0) return segments[segments.length - 1].trim();
+      if (segments.length > 1 && segments[segments.length - 2].toLowerCase() === "verify") {
+        return segments[segments.length - 1].trim();
+      }
     }
   } catch {
     // Fallback to raw token.
@@ -740,11 +744,28 @@ export default function RequestsPage() {
         (it.barcode ?? "").toLowerCase() === trimmed.toLowerCase()
     );
     if (!matched) {
-      setUsageError("Entered code is not in your currently issued list.");
+      if (usageBatchPartId) {
+        setUsageBatchScanCode(trimmed);
+        setUsageError(null);
+        message.success("Batch scan code captured.");
+      } else {
+        setUsageError("Entered code is not in your currently issued list.");
+      }
       return;
     }
     setSelectedIssuedId(matched.id);
     await resolveScanProof(trimmed, matched.id);
+  }
+
+  function applyBatchScanCode(rawValue?: string) {
+    const candidate = normalizeScanToken(rawValue ?? scanValue);
+    if (!candidate) {
+      setUsageError("Scan or enter a batch QR/barcode/SKU first.");
+      return;
+    }
+    setUsageBatchScanCode(candidate);
+    setUsageError(null);
+    message.success("Batch scan code applied.");
   }
 
   async function startCamera() {
@@ -935,12 +956,16 @@ export default function RequestsPage() {
     setIssueError(null);
     setIssueLoading(true);
     try {
+      const validationErrors: string[] = [];
       const linesPayload = (issuing.lines ?? []).map((line) => {
         const state = issueLines[line.id];
         const quantity = state?.quantity ?? line.quantity;
         const instanceIds = state?.instanceIds ?? [];
         if (line.tracking_type === "INDIVIDUAL" && instanceIds.length !== line.quantity) {
-          throw new Error("Select exactly one instance per unit for individually tracked items.");
+          validationErrors.push(`Select exactly ${line.quantity} serial(s) for ${itemSkuById.get(line.part_id) ?? `part #${line.part_id}`}.`);
+        }
+        if (line.tracking_type !== "INDIVIDUAL" && quantity !== line.quantity) {
+          validationErrors.push(`Batch quantity for ${itemSkuById.get(line.part_id) ?? `part #${line.part_id}`} must equal requested quantity (${line.quantity}).`);
         }
         return {
           line_id: line.id,
@@ -948,6 +973,9 @@ export default function RequestsPage() {
           item_instance_ids: instanceIds
         };
       });
+      if (validationErrors.length > 0) {
+        throw new Error(validationErrors.join(" "));
+      }
       await issueRequest(issuing.id, { lines: linesPayload });
       message.success("Request issued");
       setIssuing(null);
@@ -1790,11 +1818,16 @@ export default function RequestsPage() {
             <InputNumber min={1} value={usageBatchQty} onChange={(value) => setUsageBatchQty(Number(value) || 1)} />
           </Space>
           {usageBatchPartId ? (
-            <Input
-              placeholder="Scan/enter batch QR, barcode, SKU, or part name"
-              value={usageBatchScanCode}
-              onChange={(e) => setUsageBatchScanCode(e.target.value)}
-            />
+            <Space.Compact style={{ width: "100%" }}>
+              <Input
+                placeholder="Scan/enter batch QR, barcode, SKU, or part name"
+                value={usageBatchScanCode}
+                onChange={(e) => setUsageBatchScanCode(e.target.value)}
+              />
+              <Button onClick={() => applyBatchScanCode()}>
+                Use Scan
+              </Button>
+            </Space.Compact>
           ) : null}
           <Space>
             <Button onClick={captureGps} disabled={gpsLoading}>

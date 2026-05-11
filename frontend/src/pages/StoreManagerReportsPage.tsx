@@ -1,7 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { App as AntdApp, Card, Table, DatePicker, Space, Typography, Row, Col, Statistic, Tag, Button } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
-import { getStockUsageReport, getFrequentlyUsedItems, getStockUsageByTechnician, type StockUsage, type FrequentlyUsedItem, type StockUsageByTechnician } from "../api/reportsV2";
+import {
+  getStockUsageReport,
+  getFrequentlyUsedItems,
+  getStockUsageByTechnician,
+  getIssuanceKpis,
+  getTechnicianZoneCoverage,
+  type StockUsage,
+  type FrequentlyUsedItem,
+  type StockUsageByTechnician,
+  type IssuanceKpis,
+  type TechnicianZoneCoverage,
+} from "../api/reportsV2";
 import { useAuth } from "../state/AuthContext";
 import { downloadReport } from "../api/reports";
 import { formatKes } from "../utils/currency";
@@ -16,6 +27,8 @@ export default function StoreManagerReportsPage() {
   const [stockUsage, setStockUsage] = useState<StockUsage[]>([]);
   const [frequentItems, setFrequentItems] = useState<FrequentlyUsedItem[]>([]);
   const [usageByTech, setUsageByTech] = useState<StockUsageByTechnician[]>([]);
+  const [issuanceKpis, setIssuanceKpis] = useState<IssuanceKpis | null>(null);
+  const [zoneCoverage, setZoneCoverage] = useState<TechnicianZoneCoverage[]>([]);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -43,10 +56,16 @@ export default function StoreManagerReportsPage() {
         getFrequentlyUsedItems(startDate, endDate, 20),
         getStockUsageByTechnician(startDate, endDate),
       ]);
+      const [kpis, zones] = await Promise.all([
+        getIssuanceKpis(startDate, endDate),
+        getTechnicianZoneCoverage(),
+      ]);
 
       setStockUsage(usage);
       setFrequentItems(frequent);
       setUsageByTech(byTech);
+      setIssuanceKpis(kpis);
+      setZoneCoverage(zones);
     } catch (err) {
       console.error("Failed to load reports:", err);
     } finally {
@@ -176,6 +195,37 @@ export default function StoreManagerReportsPage() {
         </Col>
       </Row>
 
+      <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic title="Issue Transactions" value={issuanceKpis?.total_issue_transactions ?? 0} loading={loading} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic title="Issue Quantity" value={issuanceKpis?.total_issue_quantity ?? 0} loading={loading} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic
+              title="Avg Issue Value"
+              value={issuanceKpis?.avg_issue_value ?? 0}
+              formatter={(value) => formatKes(Number(value || 0))}
+              loading={loading}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card>
+            <Statistic title="Pending Returns" value={issuanceKpis?.pending_returns ?? 0} loading={loading} />
+            <Text type="secondary">
+              Approval rate: {(issuanceKpis?.return_approval_rate_percent ?? 0).toFixed(1)}%
+            </Text>
+          </Card>
+        </Col>
+      </Row>
+
       <Row gutter={16}>
         <Col span={24}>
           <Card title="Stock Usage Report" style={{ marginBottom: 16 }}>
@@ -216,6 +266,37 @@ export default function StoreManagerReportsPage() {
               pagination={{ pageSize: 10 }}
               size="small"
               scroll={{ x: "max-content" }}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={16}>
+        <Col span={24}>
+          <Card title="Technician Zone Coverage">
+            <Table
+              dataSource={zoneCoverage}
+              rowKey="technician_id"
+              loading={loading}
+              pagination={{ pageSize: 10 }}
+              size="small"
+              scroll={{ x: "max-content" }}
+              columns={[
+                { title: "Technician", dataIndex: "technician_name", key: "technician_name" },
+                { title: "Zone Count", dataIndex: "zone_count", key: "zone_count" },
+                {
+                  title: "Regions",
+                  dataIndex: "regions",
+                  key: "regions",
+                  render: (regions: string[]) => regions?.length ? regions.join(", ") : <Tag>None</Tag>,
+                },
+                {
+                  title: "Sample Stations",
+                  dataIndex: "stations",
+                  key: "stations",
+                  render: (stations: string[]) => stations?.slice(0, 3).join(", ") || "-",
+                },
+              ]}
             />
           </Card>
         </Col>

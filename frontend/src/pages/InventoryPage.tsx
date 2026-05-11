@@ -181,6 +181,8 @@ export default function InventoryPage() {
   const isMobile = !screens.md;
   const role = user?.role ?? "technician";
   const canApproveDeletion = isAdmin || role === "manager" || role === "approver";
+  const canUploadAttachments = isAdmin || role === "manager" || role === "store_manager" || role === "lead_technician" || role === "technician";
+  const canDeleteAttachments = isAdmin || role === "manager" || role === "store_manager";
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -2253,12 +2255,13 @@ export default function InventoryPage() {
             </Typography.Text>
             <Upload
               showUploadList={false}
+              disabled={!canUploadAttachments}
               beforeUpload={(file) => {
                 handleUploadAttachment(file as File);
                 return false;
               }}
             >
-              <Button icon={<UploadOutlined />} loading={attachmentUploading}>
+              <Button icon={<UploadOutlined />} loading={attachmentUploading} disabled={!canUploadAttachments}>
                 Upload attachment
               </Button>
             </Upload>
@@ -2277,14 +2280,22 @@ export default function InventoryPage() {
                   render: (value: number) => `${Math.ceil(value / 1024)} KB`
                 },
                 {
+                  title: "Uploaded By",
+                  dataIndex: "uploaded_by_user_id",
+                  key: "uploaded_by_user_id",
+                  render: (value: number | null | undefined) => (value ? usersById.get(value) ?? `User #${value}` : "-")
+                },
+                {
                   title: "Actions",
                   key: "actions",
                   render: (_: unknown, row: ProductAttachment) => (
                     <Space>
                       <Button onClick={() => handleDownloadAttachment(row)}>Download</Button>
-                      <Button danger onClick={() => handleDeleteAttachment(row)}>
-                        Delete
-                      </Button>
+                      {canDeleteAttachments ? (
+                        <Button danger onClick={() => handleDeleteAttachment(row)}>
+                          Delete
+                        </Button>
+                      ) : null}
                     </Space>
                   )
                 }

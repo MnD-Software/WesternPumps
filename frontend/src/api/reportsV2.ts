@@ -94,6 +94,23 @@ export interface StockUsageByTechnician {
   }[];
 }
 
+export interface IssuanceKpis {
+  total_issue_transactions: number;
+  total_issue_quantity: number;
+  total_issue_value: number;
+  avg_issue_value: number;
+  pending_returns: number;
+  return_approval_rate_percent: number;
+}
+
+export interface TechnicianZoneCoverage {
+  technician_id: number;
+  technician_name: string;
+  zone_count: number;
+  regions: string[];
+  stations: string[];
+}
+
 // API Functions for Store Manager Reports
 export async function getStockUsageReport(
   startDate?: string,
@@ -127,6 +144,20 @@ export async function getStockUsageByTechnician(
   if (startDate) params.append("start_date", startDate);
   if (endDate) params.append("end_date", endDate);
   return (await api.get<StockUsageByTechnician[]>(`/api/reports/store-manager/usage-by-technician?${params}`)).data;
+}
+
+export async function getIssuanceKpis(
+  startDate?: string,
+  endDate?: string
+): Promise<IssuanceKpis> {
+  const params = new URLSearchParams();
+  if (startDate) params.append("start_date", startDate);
+  if (endDate) params.append("end_date", endDate);
+  return (await api.get<IssuanceKpis>(`/api/reports/store-manager/issuance-kpis?${params}`)).data;
+}
+
+export async function getTechnicianZoneCoverage(): Promise<TechnicianZoneCoverage[]> {
+  return (await api.get<TechnicianZoneCoverage[]>("/api/reports/store-manager/technician-zones")).data;
 }
 
 // Technician Personal Reports

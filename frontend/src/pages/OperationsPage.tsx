@@ -190,6 +190,46 @@ export default function OperationsPage() {
     }
   }
 
+  async function handleApproveTransfer(transfer: StockTransfer) {
+    try {
+      await approveTransfer(transfer.id);
+      message.success(`Transfer #${transfer.id} approved`);
+      await load();
+    } catch (err) {
+      message.error(getApiErrorMessage(err, "Failed to approve transfer"));
+    }
+  }
+
+  async function handleCompleteTransfer(transfer: StockTransfer) {
+    try {
+      await completeTransfer(transfer.id);
+      message.success(`Transfer #${transfer.id} completed`);
+      await load();
+    } catch (err) {
+      message.error(getApiErrorMessage(err, "Failed to complete transfer"));
+    }
+  }
+
+  async function handleApproveCycle(cycle: CycleCount) {
+    try {
+      await approveCycleCount(cycle.id, "Approved from operations page");
+      message.success(`Cycle count #${cycle.id} approved`);
+      await load();
+    } catch (err) {
+      message.error(getApiErrorMessage(err, "Failed to approve cycle count"));
+    }
+  }
+
+  async function handleReleaseReservation(reservation: Reservation) {
+    try {
+      await releaseReservation(reservation.id);
+      message.success(`Reservation #${reservation.id} released`);
+      await load();
+    } catch (err) {
+      message.error(getApiErrorMessage(err, "Failed to release reservation"));
+    }
+  }
+
   const itemOptions = useMemo(() => items.map((item) => ({ value: item.id, label: `${item.sku} - ${item.name}` })), [items]);
   const supplierOptions = useMemo(() => suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })), [suppliers]);
   const locationOptions = useMemo(() => locations.map((location) => ({ value: location.id, label: location.name })), [locations]);
@@ -373,8 +413,8 @@ export default function OperationsPage() {
                   title: "Actions",
                   render: (_: unknown, row: StockTransfer) => (
                     <Space>
-                      <Button size="small" onClick={() => void approveTransfer(row.id).then(load)}>Approve</Button>
-                      <Button size="small" onClick={() => void completeTransfer(row.id).then(load)}>Complete</Button>
+                      <Button size="small" disabled={row.status !== "DRAFT"} onClick={() => void handleApproveTransfer(row)}>Approve</Button>
+                      <Button size="small" disabled={!["APPROVED", "IN_TRANSIT"].includes(String(row.status || ""))} onClick={() => void handleCompleteTransfer(row)}>Complete</Button>
                     </Space>
                   ),
                 },
@@ -399,8 +439,8 @@ export default function OperationsPage() {
                   title: "Actions",
                   render: (_: unknown, row: CycleCount) => (
                     <Space>
-                      <Button size="small" onClick={() => void handleSubmitCycle(row)}>Submit</Button>
-                      <Button size="small" onClick={() => void approveCycleCount(row.id, "Approved from operations page").then(load)}>Approve</Button>
+                      <Button size="small" disabled={row.status !== "OPEN"} onClick={() => void handleSubmitCycle(row)}>Submit</Button>
+                      <Button size="small" disabled={row.status !== "SUBMITTED"} onClick={() => void handleApproveCycle(row)}>Approve</Button>
                     </Space>
                   ),
                 },
@@ -423,7 +463,7 @@ export default function OperationsPage() {
               { title: "Part", dataIndex: "part_id" },
               { title: "Qty", dataIndex: "quantity" },
               { title: "Status", dataIndex: "status" },
-              { title: "Action", render: (_: unknown, row: Reservation) => <Button size="small" onClick={() => void releaseReservation(row.id).then(load)}>Release</Button> },
+              { title: "Action", render: (_: unknown, row: Reservation) => <Button size="small" disabled={row.status !== "ACTIVE"} onClick={() => void handleReleaseReservation(row)}>Release</Button> },
             ]}
           />
         </Card>

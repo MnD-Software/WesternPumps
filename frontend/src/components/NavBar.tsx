@@ -36,9 +36,9 @@ const ROLE_NAV_PRIORITY: Record<string, string[]> = {
   admin: ["/dashboard", "__notifications__", "/approvals", "/jobs", "/requests", "/inventory", "/deliveries", "/reports-v2", "/reports", "/users"],
   manager: ["/dashboard", "__notifications__", "/approvals", "/jobs", "/requests", "/inventory", "/deliveries", "/reports-v2", "/reports", "/store-manager-reports", "/lead-tech-reports"],
   store_manager: ["/dashboard", "__notifications__", "/requests", "/inventory", "/deliveries", "/jobs", "/store-manager-reports", "/reports"],
-  lead_technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/lead-tech-reports", "/technician-reports"],
-  technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/technician-reports"],
-  staff: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries"],
+  lead_technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/my-zones", "/lead-tech-reports", "/technician-reports"],
+  technician: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/my-zones", "/technician-reports"],
+  staff: ["/dashboard", "__notifications__", "/jobs", "/requests", "/deliveries", "/my-zones"],
   approver: ["/dashboard", "__notifications__", "/approvals", "/requests", "/jobs"],
   finance: ["/dashboard", "__notifications__", "/reports-v2", "/reports", "/operations", "/platform"],
   rider: ["/dashboard", "__notifications__", "/deliveries", "/my-settings"],
@@ -138,6 +138,9 @@ export default function NavBar() {
           : null,
         canAccessPage(role, "technician_reports")
           ? { key: "/technician-reports", label: <span className="app-menu-label">My Reports</span>, title: "My Performance Reports", icon: navIcon(<AnalyticsIcon />) }
+          : null,
+        canAccessPage(role, "my_zones")
+          ? { key: "/my-zones", label: <span className="app-menu-label">My Zones</span>, title: "My Assigned Zones", icon: navIcon(<NotificationsIcon />) }
           : null,
         canAccessPage(role, "audit")
           ? { key: "/audit", label: <span className="app-menu-label">Audit Log</span>, title: "Audit Log", icon: navIcon(<TimelineIcon />) }

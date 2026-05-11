@@ -13,7 +13,9 @@ from app.db import get_db
 from app.deps import get_current_user, require_admin, require_roles
 from app.models import TechnicianZoneAssignment, User, UserPreference
 from app.schemas import (
+    TechnicianZoneCreate,
     TechnicianZoneRead,
+    TechnicianZoneUpdate,
     UserAdminPasswordReset,
     UserCreate,
     UserPasswordChange,
@@ -292,6 +294,73 @@ def list_user_zones(user_id: int, db: Session = Depends(get_db)) -> list[Technic
         .order_by(TechnicianZoneAssignment.zone_order.asc(), TechnicianZoneAssignment.id.asc())
     ).all()
     return [TechnicianZoneRead.model_validate(row, from_attributes=True) for row in rows]
+
+
+@router.post("/{user_id}/zones", response_model=TechnicianZoneRead, dependencies=[Depends(require_admin)])
+def create_user_zone(
+    user_id: int,
+    payload: TechnicianZoneCreate,
+    db: Session = Depends(get_db),
+) -> TechnicianZoneRead:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    row = TechnicianZoneAssignment(
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        region_label=payload.region_label.strip(),
+        station_name=payload.station_name.strip(),
+        client_code=(payload.client_code or "").strip() or None,
+        zone_order=int(payload.zone_order),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return TechnicianZoneRead.model_validate(row, from_attributes=True)
+
+
+@router.patch("/{user_id}/zones/{zone_id}", response_model=TechnicianZoneRead, dependencies=[Depends(require_admin)])
+def update_user_zone(
+    user_id: int,
+    zone_id: int,
+    payload: TechnicianZoneUpdate,
+    db: Session = Depends(get_db),
+) -> TechnicianZoneRead:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    row = db.get(TechnicianZoneAssignment, zone_id)
+    if not row or row.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "region_label" in changes:
+        row.region_label = (changes["region_label"] or "").strip()
+    if "station_name" in changes:
+        row.station_name = (changes["station_name"] or "").strip()
+    if "client_code" in changes:
+        row.client_code = (changes["client_code"] or "").strip() or None
+    if "zone_order" in changes:
+        row.zone_order = int(changes["zone_order"])
+    db.commit()
+    db.refresh(row)
+    return TechnicianZoneRead.model_validate(row, from_attributes=True)
+
+
+@router.delete("/{user_id}/zones/{zone_id}", status_code=status.HTTP_200_OK, response_class=Response, dependencies=[Depends(require_admin)])
+def delete_user_zone(
+    user_id: int,
+    zone_id: int,
+    db: Session = Depends(get_db),
+) -> None:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    row = db.get(TechnicianZoneAssignment, zone_id)
+    if not row or row.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+    db.delete(row)
+    db.commit()
+    return None
 
 
 @router.get("/me/preferences", response_model=UserPreferencesRead)

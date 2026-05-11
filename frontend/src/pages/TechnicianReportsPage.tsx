@@ -5,9 +5,7 @@ import { useAuth } from "../state/AuthContext";
 import { getMyStockUsage, getMyFrequentlyUsedItems, type TechnicianFrequentItem } from "../api/reportsV2";
 import { listJobs } from "../api/jobs";
 import { downloadReport } from "../api/reports";
-import { listMyZones } from "../api/users";
 import { listMyIssuedItems } from "../api/requests";
-import type { TechnicianZone } from "../api/types";
 import type { Job } from "../api/types";
 import dayjs from "dayjs";
 
@@ -30,7 +28,6 @@ export default function TechnicianReportsPage() {
     openIssuedItems: 0,
     openIssuedBatchQty: 0,
   });
-  const [zones, setZones] = useState<TechnicianZone[]>([]);
 
   // Initialize dates
   useEffect(() => {
@@ -50,11 +47,10 @@ export default function TechnicianReportsPage() {
     try {
       setLoading(true);
       
-      const [jobsRes, usageRes, frequentRes, zonesRes, issuedRes] = await Promise.all([
+      const [jobsRes, usageRes, frequentRes, issuedRes] = await Promise.all([
         listJobs(),
         getMyStockUsage(startDate, endDate),
         getMyFrequentlyUsedItems(startDate, endDate),
-        listMyZones(),
         listMyIssuedItems(),
       ]);
       
@@ -68,7 +64,6 @@ export default function TechnicianReportsPage() {
       
       setMyJobs(myJobsList);
       setFrequentItems(items);
-      setZones(zonesRes || []);
       
       setStats({
         totalJobs: myJobsList.length,
@@ -241,14 +236,6 @@ export default function TechnicianReportsPage() {
             <Statistic title="Open Batch Qty" value={stats.openIssuedBatchQty} />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={12}>
-          <Card>
-            <Statistic title="Assigned Zones" value={zones.length} />
-            <Text type="secondary">
-              {zones.slice(0, 2).map((z) => z.station_name).join(", ") || "No zones assigned"}
-            </Text>
-          </Card>
-        </Col>
       </Row>
       
       <Card 
@@ -277,21 +264,6 @@ export default function TechnicianReportsPage() {
           rowKey="id"
           loading={loading}
           pagination={{ pageSize: 10 }}
-          scroll={{ x: "max-content" }}
-        />
-      </Card>
-      <Card title="My Zones" style={{ marginTop: 24 }}>
-        <Table
-          dataSource={zones}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
-            { title: "Region", dataIndex: "region_label", key: "region_label" },
-            { title: "Station", dataIndex: "station_name", key: "station_name" },
-            { title: "Client", dataIndex: "client_code", key: "client_code", render: (v: string | null) => v || "-" },
-          ]}
           scroll={{ x: "max-content" }}
         />
       </Card>

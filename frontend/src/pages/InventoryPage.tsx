@@ -19,6 +19,7 @@ import {
   listItemInstances,
   listItems,
   listLowStock,
+  normalizeExistingSkus,
   hardDeleteItem,
   type ProductAttachment,
   reactivateItem,
@@ -220,6 +221,7 @@ export default function InventoryPage() {
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importSummary, setImportSummary] = useState<{ created: number; failed: number } | null>(null);
   const [importSkipped, setImportSkipped] = useState<number | null>(null);
+  const [normalizingSkus, setNormalizingSkus] = useState(false);
 
   function triggerInventoryPulse() {
     setInventoryPulse(true);
@@ -1469,6 +1471,19 @@ export default function InventoryPage() {
     }
   }
 
+  async function handleNormalizeSkus() {
+    setNormalizingSkus(true);
+    try {
+      const result = await normalizeExistingSkus();
+      message.success(`Normalized SKUs: ${result.changed} updated out of ${result.total_items}.`);
+      await refresh();
+    } catch (err: any) {
+      message.error(getApiErrorMessage(err, "Failed to normalize existing SKUs"));
+    } finally {
+      setNormalizingSkus(false);
+    }
+  }
+
   async function exportTransactions() {
     if (!stockItem) return;
     setTxExporting(true);
@@ -2091,6 +2106,23 @@ export default function InventoryPage() {
                 {importing ? "Importing..." : "Import Excel (.xlsx)"}
               </Button>
             </Upload>
+            {isAdmin ? (
+              <Button
+                danger
+                loading={normalizingSkus}
+                onClick={() =>
+                  Modal.confirm({
+                    title: "Normalize existing SKUs?",
+                    content: "This renames all current SKU values to short sequential format (e.g., WP001).",
+                    okText: "Normalize",
+                    okButtonProps: { danger: true },
+                    onOk: () => handleNormalizeSkus(),
+                  })
+                }
+              >
+                Normalize Existing SKUs
+              </Button>
+            ) : null}
           </Space>
           {importSummary ? (
             <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>

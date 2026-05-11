@@ -209,3 +209,13 @@ export async function importInventoryXlsx(file: File, dryRun = false): Promise<I
     })
   ).data;
 }
+
+export type NormalizeSkusResult = {
+  total_items: number;
+  changed: number;
+  sample: Array<{ part_id: number; from: string; to: string }>;
+};
+
+export async function normalizeExistingSkus(): Promise<NormalizeSkusResult> {
+  return (await api.post<NormalizeSkusResult>("/api/items/normalize-skus")).data;
+}

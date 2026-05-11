@@ -19,7 +19,7 @@ from app.db import get_db
 from app.audit import log_audit
 from app.deps import get_current_user, require_admin, require_roles
 from app.models import BatchUsageRecord, Category, IssuedBatchItem, ItemInstance, Location, Part, PartLocationStock, ProductAttachment, StockRequestLine, StockTransaction, StockTransactionType, Supplier, UsageRecord, User
-from app.sku import generate_system_sku
+from app.sku import SKU_PREFIX, SKU_WIDTH, generate_system_sku
 from app.schemas import (
     ItemCreate,
     ItemInstanceCreate,
@@ -44,6 +44,12 @@ api_router = APIRouter(prefix="/api", tags=["inventory"])
 class DeveloperPurgePayload(BaseModel):
     confirmation: str = Field(min_length=8, max_length=120)
     token: str = Field(min_length=8, max_length=200)
+
+
+class SkuNormalizeResult(BaseModel):
+    total_items: int
+    changed: int
+    sample: list[dict[str, str | int]]
 
 
 def _can_view_stock_levels(current_user: User) -> bool:
@@ -477,6 +483,44 @@ def purge_all_items(
         "transactions_deleted": int(tx_deleted),
         "request_lines_deleted": int(request_lines_deleted),
     }
+
+
+@api_router.post(
+    "/items/normalize-skus",
+    response_model=SkuNormalizeResult,
+    dependencies=[Depends(require_admin)],
+)
+def normalize_existing_skus(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SkuNormalizeResult:
+    parts = db.scalars(select(Part).order_by(Part.id.asc())).all()
+    used: set[str] = set()
+    next_num = 1
+    changed = 0
+    sample: list[dict[str, str | int]] = []
+    for part in parts:
+        candidate = f"{SKU_PREFIX}{next_num:0{SKU_WIDTH}d}"
+        while candidate in used:
+            next_num += 1
+            candidate = f"{SKU_PREFIX}{next_num:0{SKU_WIDTH}d}"
+        used.add(candidate)
+        old = str(part.sku or "").strip()
+        if old != candidate:
+            part.sku = candidate
+            changed += 1
+            if len(sample) < 20:
+                sample.append({"part_id": int(part.id), "from": old, "to": candidate})
+        next_num += 1
+    db.commit()
+    log_audit(
+        db,
+        current_user,
+        action="normalize_skus",
+        entity_type="item",
+        detail={"changed": changed, "total_items": len(parts)},
+    )
+    return SkuNormalizeResult(total_items=len(parts), changed=changed, sample=sample)
 
 
 @api_router.get(

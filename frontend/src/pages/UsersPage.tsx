@@ -5,6 +5,8 @@ import { MoreOutlined } from "@ant-design/icons";
 import { forgotPassword } from "../api/auth";
 import {
   adminResetUserPassword,
+  createUserZone,
+  deleteUserZone,
   createUser,
   deactivateUser,
   hardDeleteUser,
@@ -12,6 +14,7 @@ import {
   listUserZones,
   listUsers,
   reactivateUser,
+  updateUserZone,
   updateUser
 } from "../api/users";
 import type { TechnicianZone, User, UserRole } from "../api/types";
@@ -64,6 +67,12 @@ export default function UsersPage() {
   const [zonesUser, setZonesUser] = useState<User | null>(null);
   const [zones, setZones] = useState<TechnicianZone[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
+  const [zoneSaving, setZoneSaving] = useState(false);
+  const [editingZone, setEditingZone] = useState<TechnicianZone | null>(null);
+  const [zoneRegion, setZoneRegion] = useState("");
+  const [zoneStation, setZoneStation] = useState("");
+  const [zoneClient, setZoneClient] = useState("");
+  const [zoneOrder, setZoneOrder] = useState(1);
 
   async function refresh() {
     setLoading(true);
@@ -234,12 +243,85 @@ export default function UsersPage() {
     setZonesUser(user);
     setZones([]);
     setZonesLoading(true);
+    setEditingZone(null);
     try {
-      setZones(await listUserZones(user.id));
+      const loaded = await listUserZones(user.id);
+      setZones(loaded);
+      setZoneOrder((loaded.length || 0) + 1);
+      setZoneRegion("");
+      setZoneStation("");
+      setZoneClient("");
     } catch (err: any) {
       setError(getApiErrorMessage(err, "Failed to load technician zones"));
     } finally {
       setZonesLoading(false);
+    }
+  }
+
+  function startCreateZone() {
+    setEditingZone(null);
+    setZoneRegion("");
+    setZoneStation("");
+    setZoneClient("");
+    setZoneOrder((zones.length || 0) + 1);
+  }
+
+  function startEditZone(zone: TechnicianZone) {
+    setEditingZone(zone);
+    setZoneRegion(zone.region_label || "");
+    setZoneStation(zone.station_name || "");
+    setZoneClient(zone.client_code || "");
+    setZoneOrder(zone.zone_order || 1);
+  }
+
+  async function saveZone() {
+    if (!zonesUser) return;
+    if (!zoneRegion.trim() || !zoneStation.trim()) {
+      setError("Region and station are required for zones");
+      return;
+    }
+    setZoneSaving(true);
+    try {
+      if (editingZone) {
+        await updateUserZone(zonesUser.id, editingZone.id, {
+          region_label: zoneRegion.trim(),
+          station_name: zoneStation.trim(),
+          client_code: zoneClient.trim() || null,
+          zone_order: zoneOrder,
+        });
+        message.success("Zone updated");
+      } else {
+        await createUserZone(zonesUser.id, {
+          region_label: zoneRegion.trim(),
+          station_name: zoneStation.trim(),
+          client_code: zoneClient.trim() || null,
+          zone_order: zoneOrder,
+        });
+        message.success("Zone added");
+      }
+      setZones(await listUserZones(zonesUser.id));
+      await refresh();
+      startCreateZone();
+    } catch (err: any) {
+      setError(getApiErrorMessage(err, "Failed to save zone"));
+    } finally {
+      setZoneSaving(false);
+    }
+  }
+
+  async function removeZone(zone: TechnicianZone) {
+    if (!zonesUser) return;
+    setZoneSaving(true);
+    try {
+      await deleteUserZone(zonesUser.id, zone.id);
+      message.success("Zone deleted");
+      setZones(await listUserZones(zonesUser.id));
+      await refresh();
+      if (editingZone?.id === zone.id) startCreateZone();
+    } catch (err: any) {
+      setError(getApiErrorMessage(err, "Failed to delete zone"));
+    } finally {
+      setZoneSaving(false);
     }
   }
 
@@ -457,10 +539,56 @@ export default function UsersPage() {
       <Modal
         title={zonesUser ? `Technician zones: ${zonesUser.full_name || zonesUser.email}` : "Technician zones"}
         open={!!zonesUser}
-        onCancel={() => setZonesUser(null)}
+        onCancel={() => {
+          setZonesUser(null);
+          setEditingZone(null);
+        }}
         footer={null}
         width={720}
       >
+        <Card
+          size="small"
+          title={editingZone ? "Edit zone" : "Add zone"}
+          style={{ marginBottom: 12 }}
+          extra={
+            editingZone ? (
+              <Button onClick={startCreateZone}>
+                New
+              </Button>
+            ) : null
+          }
+        >
+          <Space wrap>
+            <Input
+              placeholder="Region"
+              value={zoneRegion}
+              onChange={(e) => setZoneRegion(e.target.value)}
+              style={{ minWidth: 160 }}
+            />
+            <Input
+              placeholder="Station"
+              value={zoneStation}
+              onChange={(e) => setZoneStation(e.target.value)}
+              style={{ minWidth: 180 }}
+            />
+            <Input
+              placeholder="Client code"
+              value={zoneClient}
+              onChange={(e) => setZoneClient(e.target.value)}
+              style={{ minWidth: 130 }}
+            />
+            <Input
+              type="number"
+              min={1}
+              value={zoneOrder}
+              onChange={(e) => setZoneOrder(Math.max(1, Number(e.target.value) || 1))}
+              style={{ width: 90 }}
+            />
+            <Button type="primary" loading={zoneSaving} onClick={saveZone}>
+              {editingZone ? "Update" : "Add"}
+            </Button>
+          </Space>
+        </Card>
         <Table
           rowKey="id"
           loading={zonesLoading}
@@ -471,6 +599,18 @@ export default function UsersPage() {
             { title: "Region", dataIndex: "region_label", key: "region_label" },
             { title: "Station", dataIndex: "station_name", key: "station_name" },
             { title: "Client", dataIndex: "client_code", key: "client_code", render: (value: string | null) => value || "-" },
+            {
+              title: "Actions",
+              key: "actions",
+              render: (_: unknown, zone: TechnicianZone) => (
+                <Space>
+                  <Button onClick={() => startEditZone(zone)}>Edit</Button>
+                  <Button danger onClick={() => void removeZone(zone)} loading={zoneSaving}>
+                    Delete
+                  </Button>
+                </Space>
+              )
+            },
           ]}
         />
       </Modal>

@@ -24,6 +24,7 @@ export type AppPageKey =
   | "guide"
   | "inventory_guide"
   | "my_settings"
+  | "my_zones"
   | "audit"
   | "inventory_science"
   | "platform"
@@ -57,6 +58,7 @@ const ACCESS_RULES: Record<AppPageKey, UserRole[]> = {
   guide: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],
   inventory_guide: ["admin", "manager", "store_manager"],
   my_settings: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "finance", "staff", "rider", "driver"],
+  my_zones: ["admin", "manager", "store_manager", "approver", "lead_technician", "technician", "staff"],
   audit: ["admin"],
   inventory_science: ["admin", "manager", "store_manager"],
   platform: ["admin", "manager", "finance"],
@@ -99,6 +101,7 @@ export function allowedLandingPages(role: string | null | undefined): string[] {
     { page: "store_manager_reports", path: "/store-manager-reports" },
     { page: "lead_tech_reports", path: "/lead-tech-reports" },
     { page: "technician_reports", path: "/technician-reports" },
+    { page: "my_zones", path: "/my-zones" },
   ];
   return map.filter((entry) => canAccessPage(role, entry.page)).map((entry) => entry.path);
 }

@@ -78,6 +78,20 @@ class TechnicianZoneRead(BaseModel):
     updated_at: datetime
 
 
+class TechnicianZoneCreate(BaseModel):
+    region_label: str = Field(min_length=1, max_length=200)
+    station_name: str = Field(min_length=1, max_length=200)
+    client_code: Optional[str] = Field(default=None, max_length=120)
+    zone_order: int = Field(default=1, ge=1, le=10000)
+
+
+class TechnicianZoneUpdate(BaseModel):
+    region_label: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    station_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    client_code: Optional[str] = Field(default=None, max_length=120)
+    zone_order: Optional[int] = Field(default=None, ge=1, le=10000)
+
+
 class UserPreferencesUpdate(BaseModel):
     default_landing_page: Optional[str] = Field(default=None, pattern=r"^/[\w/-]+$")
     dense_mode: Optional[bool] = None

@@ -45,6 +45,7 @@ const ReportsV2Page = lazy(() => import("./pages/ReportsV2Page"));
 const SystemGuidePage = lazy(() => import("./pages/SystemGuidePage"));
 const InventoryGuidePage = lazy(() => import("./pages/InventoryGuidePage"));
 const MySettingsPage = lazy(() => import("./pages/MySettingsPage"));
+const MyZonesPage = lazy(() => import("./pages/MyZonesPage"));
 const NotificationBar = lazy(() => import("./components/NotificationBar"));
 const RecentActivityBar = lazy(() => import("./components/RecentActivityBar"));
 
@@ -576,6 +577,14 @@ const [drawerOpen, setDrawerOpen] = useState(false);
             element={
               <AccessOnly page="my_settings">
                 <MySettingsPage />
+              </AccessOnly>
+            }
+          />
+          <Route
+            path="/my-zones"
+            element={
+              <AccessOnly page="my_zones">
+                <MyZonesPage />
               </AccessOnly>
             }
           />

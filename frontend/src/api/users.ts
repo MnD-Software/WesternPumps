@@ -57,6 +57,25 @@ export async function listUserZones(userId: number): Promise<TechnicianZone[]> {
   return (await api.get<TechnicianZone[]>(`/users/${userId}/zones`)).data;
 }
 
+export async function createUserZone(
+  userId: number,
+  payload: { region_label: string; station_name: string; client_code?: string | null; zone_order: number }
+): Promise<TechnicianZone> {
+  return (await api.post<TechnicianZone>(`/users/${userId}/zones`, payload)).data;
+}
+
+export async function updateUserZone(
+  userId: number,
+  zoneId: number,
+  payload: Partial<{ region_label: string; station_name: string; client_code: string | null; zone_order: number }>
+): Promise<TechnicianZone> {
+  return (await api.patch<TechnicianZone>(`/users/${userId}/zones/${zoneId}`, payload)).data;
+}
+
+export async function deleteUserZone(userId: number, zoneId: number): Promise<void> {
+  await api.delete(`/users/${userId}/zones/${zoneId}`);
+}
+
 export async function listMyZones(): Promise<TechnicianZone[]> {
   return (await api.get<TechnicianZone[]>("/users/me/zones")).data;
 }

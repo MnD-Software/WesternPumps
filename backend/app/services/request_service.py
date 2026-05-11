@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, unquote, urlparse
 
 from jose import JWTError, jwt
 from sqlalchemy import func, select
@@ -255,8 +256,24 @@ class RequestService:
             raise ServiceError("Request not found", 404)
         if request.status != StockRequestStatus.APPROVED:
             raise ServiceError("Request is not approved", 400)
+        if not lines:
+            raise ServiceError("At least one issue line is required", 400)
 
         technician_id = request.requested_by_user_id
+        request_line_ids = {int(line.id) for line in request.lines}
+        submitted_ids: list[int] = []
+        for line in lines:
+            raw_line_id = line.get("line_id")
+            try:
+                line_id = int(raw_line_id)
+            except Exception:
+                raise ServiceError("Each issue line must include a valid line_id", 400)
+            submitted_ids.append(line_id)
+
+        if len(set(submitted_ids)) != len(submitted_ids):
+            raise ServiceError("Duplicate line_id submitted in issuance", 400)
+        if set(submitted_ids) != request_line_ids:
+            raise ServiceError("Issue payload must include each approved request line exactly once", 400)
 
         try:
             for line in lines:
@@ -421,13 +438,15 @@ class RequestService:
         normalized_scan = (scan_code or "").strip().upper()
         if not normalized_scan:
             raise ServiceError("scan_code is required", 400)
+        scan_candidates = self._expand_scan_candidates(normalized_scan)
         accepted_tokens = {
             str(part.sku or "").strip().upper(),
             str(part.barcode_value or "").strip().upper(),
             str(part.name or "").strip().upper(),
+            str(part.id),
         }
         accepted_tokens = {token for token in accepted_tokens if token}
-        if accepted_tokens and normalized_scan not in accepted_tokens:
+        if accepted_tokens and accepted_tokens.isdisjoint(scan_candidates):
             raise ServiceError("Scanned code does not match the selected part", 400)
 
         if request_id:
@@ -877,6 +896,32 @@ class RequestService:
         dl = math.radians(lon2 - lon1)
         a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
         return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    def _expand_scan_candidates(self, normalized_scan: str) -> set[str]:
+        candidates: set[str] = {normalized_scan}
+        decoded = unquote(normalized_scan).strip()
+        if decoded:
+            candidates.add(decoded.upper())
+        if "://" not in decoded:
+            return candidates
+
+        try:
+            parsed = urlparse(decoded)
+        except Exception:
+            return candidates
+
+        part_id = (parsed.path or "").rstrip("/").split("/")[-1].strip()
+        if part_id:
+            candidates.add(part_id.upper())
+
+        query = parse_qs(parsed.query or "")
+        sku_values = query.get("sku") or []
+        for sku in sku_values:
+            token = (sku or "").strip().upper()
+            if token:
+                candidates.add(token)
+
+        return candidates
 
     def _build_usage_hash(
         self,

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Form, Input, Select, Space, Spin, Switch, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, Select, Space, Spin, Switch, Table, Typography } from "antd";
 import { useSearchParams } from "react-router-dom";
 import { getApiErrorMessage } from "../api/error";
-import { changeMyPassword, getMyPreferences, updateMyPreferences } from "../api/users";
+import { changeMyPassword, getMyPreferences, listMyZones, updateMyPreferences } from "../api/users";
+import type { TechnicianZone } from "../api/types";
 import { useAuth } from "../state/AuthContext";
 import { allowedLandingPages } from "../utils/access";
 import { validatePasswordPolicy } from "../utils/passwordPolicy";
@@ -26,8 +27,10 @@ export default function MySettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [zones, setZones] = useState<TechnicianZone[]>([]);
 
   const forcePasswordChange = searchParams.get("force_password_change") === "1" || Boolean(user?.must_change_password);
+  const shouldShowZones = user?.role === "technician" || user?.role === "lead_technician";
 
   const landingOptions = useMemo(
     () =>
@@ -49,6 +52,11 @@ export default function MySettingsPage() {
       setAnimationsEnabled(Boolean(prefs.animations_enabled));
       setShowEmailInHeader(Boolean(prefs.show_email_in_header));
       setDisplayNameOverride(prefs.display_name_override || "");
+      if (shouldShowZones) {
+        setZones(await listMyZones());
+      } else {
+        setZones([]);
+      }
     } catch (err: any) {
       setError(getApiErrorMessage(err, "Failed to load your settings"));
     } finally {
@@ -177,6 +185,25 @@ export default function MySettingsPage() {
           </Form>
         )}
       </Card>
+      {shouldShowZones ? (
+        <Card style={{ marginTop: 16 }} title="My Assigned Zones">
+          <Typography.Paragraph type="secondary">
+            These are the stations currently assigned to your account.
+          </Typography.Paragraph>
+          <Table<TechnicianZone>
+            size="small"
+            rowKey="id"
+            pagination={{ pageSize: 10, showSizeChanger: false }}
+            dataSource={zones}
+            columns={[
+              { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
+              { title: "Region", dataIndex: "region_label", key: "region_label" },
+              { title: "Station", dataIndex: "station_name", key: "station_name" },
+              { title: "Client", dataIndex: "client_code", key: "client_code", render: (v) => v || "-" },
+            ]}
+          />
+        </Card>
+      ) : null}
       <Card style={{ marginTop: 16 }} title="Change Password">
         <Form layout="vertical" onFinish={handlePasswordChange}>
           <Form.Item label="Current password" required>

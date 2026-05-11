@@ -57,6 +57,10 @@ export async function listUserZones(userId: number): Promise<TechnicianZone[]> {
   return (await api.get<TechnicianZone[]>(`/users/${userId}/zones`)).data;
 }
 
+export async function listMyZones(): Promise<TechnicianZone[]> {
+  return (await api.get<TechnicianZone[]>("/users/me/zones")).data;
+}
+
 export async function getMyPreferences(): Promise<UserPreferences> {
   return (await api.get<UserPreferences>("/users/me/preferences")).data;
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Card, Typography, Spin, Result, Button, Descriptions, Tag, QRCode } from "antd";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { formatKes } from "../utils/currency";
 
@@ -19,12 +19,13 @@ interface PartVerification {
 
 export default function VerifyItemPage() {
   const [searchParams] = useSearchParams();
+  const params = useParams<{ partId: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PartVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const partId = searchParams.get("part_id");
+  const partId = params.partId || searchParams.get("part_id");
   const sku = searchParams.get("sku");
 
   useEffect(() => {

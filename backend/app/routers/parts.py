@@ -836,7 +836,7 @@ def list_item_attachments(item_id: int, db: Session = Depends(get_db)) -> list[P
     "/items/{item_id}/attachments",
     response_model=ProductAttachmentRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles("store_manager", "manager"))],
+    dependencies=[Depends(require_roles("store_manager", "manager", "lead_technician", "technician"))],
 )
 async def upload_item_attachment(
     item_id: int,

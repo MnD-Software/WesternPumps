@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Part
 
 
-SKU_PREFIX = "WPS"
+SKU_PREFIX = "WP"
+SKU_WIDTH = 3
+_LEGACY_PATTERN = re.compile(r"^(?:WPS|WP)-?(\d+)$", re.IGNORECASE)
 
 
 def _next_system_sku_number(db: Session) -> int:
@@ -14,18 +18,22 @@ def _next_system_sku_number(db: Session) -> int:
     max_num = 0
     for sku in rows:
         value = (sku or "").strip().upper()
-        if not value.startswith(f"{SKU_PREFIX}-"):
+        match = _LEGACY_PATTERN.match(value)
+        if not match:
             continue
-        tail = value.split("-", 1)[1].strip()
-        if tail.isdigit():
-            max_num = max(max_num, int(tail))
+        max_num = max(max_num, int(match.group(1)))
     return max_num + 1
+
+
+def _format_sku(number: int) -> str:
+    return f"{SKU_PREFIX}{number:0{SKU_WIDTH}d}"
 
 
 def generate_system_sku(db: Session) -> str:
     next_num = _next_system_sku_number(db)
-    candidate = f"{SKU_PREFIX}-{next_num:06d}"
+    # Keep SKUs very short and human-friendly for field teams.
+    candidate = _format_sku(next_num)
     while db.scalar(select(Part.id).where(Part.sku == candidate).limit(1)) is not None:
         next_num += 1
-        candidate = f"{SKU_PREFIX}-{next_num:06d}"
+        candidate = _format_sku(next_num)
     return candidate

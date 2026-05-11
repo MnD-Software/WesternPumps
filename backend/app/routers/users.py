@@ -268,6 +268,19 @@ def read_me(current_user: User = Depends(get_current_user)) -> UserRead:
     return _to_user_read(current_user)
 
 
+@router.get("/me/zones", response_model=list[TechnicianZoneRead])
+def list_my_zones(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[TechnicianZoneRead]:
+    rows = db.scalars(
+        select(TechnicianZoneAssignment)
+        .where(TechnicianZoneAssignment.user_id == current_user.id)
+        .order_by(TechnicianZoneAssignment.zone_order.asc(), TechnicianZoneAssignment.id.asc())
+    ).all()
+    return [TechnicianZoneRead.model_validate(row, from_attributes=True) for row in rows]
+
+
 @router.get("/{user_id}/zones", response_model=list[TechnicianZoneRead], dependencies=[Depends(require_admin)])
 def list_user_zones(user_id: int, db: Session = Depends(get_db)) -> list[TechnicianZoneRead]:
     user = db.get(User, user_id)

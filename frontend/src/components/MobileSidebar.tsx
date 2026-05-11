@@ -32,7 +32,7 @@ export default function MobileSidebar({ open, onClose }: Props) {
         className="mobile-sidebar-drawer"
         style={{ position: "relative", zIndex: 1001 }}
       >
-        <NavBar />
+        <NavBar onAction={onClose} />
       </Drawer>
     </>
   );

@@ -150,6 +150,35 @@ svg {
   .app-shell::after {
     animation: none !important;
   }
+
+  .page-shell .ant-card-head-title {
+    white-space: normal;
+  }
+
+  .page-shell .ant-table-cell .ant-space {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .page-shell .ant-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .page-shell .ant-table-pagination {
+    padding-inline: 6px;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+  }
+
+  .ant-modal .ant-modal-content {
+    padding: 12px !important;
+  }
 }
 
 /* Desktop baseline (1024px+) keeps existing layout; overrides here stay minimal */

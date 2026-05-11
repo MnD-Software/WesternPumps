@@ -429,7 +429,7 @@ export default function UsersPage() {
       <Typography.Title level={2} style={{ marginTop: 0 }}>
         Users
       </Typography.Title>
-      <Space>
+      <Space wrap>
         <Button onClick={() => setShowCreateUserForm((prev) => !prev)}>
           {showCreateUserForm ? "Hide Add User" : "Add New User"}
         </Button>
@@ -495,6 +495,7 @@ export default function UsersPage() {
             dataSource={users}
             columns={columns}
             pagination={{ pageSize: 12, showSizeChanger: true }}
+            scroll={{ x: "max-content" }}
             locale={{ emptyText: "No users yet." }}
           />
         </Card>
@@ -512,6 +513,7 @@ export default function UsersPage() {
             loading={loading}
             dataSource={technicianZones}
             pagination={{ pageSize: 15, showSizeChanger: true }}
+            scroll={{ x: "max-content" }}
             columns={[
               { title: "Technician", key: "tech_name", render: (_: unknown, row: TechnicianZoneAdminRow) => row.user_full_name || row.user_email },
               { title: "Email", dataIndex: "user_email", key: "user_email" },
@@ -662,6 +664,7 @@ export default function UsersPage() {
           loading={zonesLoading}
           dataSource={zones}
           pagination={{ pageSize: 10 }}
+          scroll={{ x: "max-content" }}
           columns={[
             { title: "Order", dataIndex: "zone_order", key: "zone_order", width: 90 },
             { title: "Region", dataIndex: "region_label", key: "region_label" },

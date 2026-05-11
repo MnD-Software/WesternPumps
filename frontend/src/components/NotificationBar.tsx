@@ -1,10 +1,12 @@
 import { Badge, Button, Empty, List, Popover, Typography } from "antd";
 import { BellOutlined } from "@ant-design/icons";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useNotifications } from "../state/NotificationsContext";
 
 export default function NotificationBar() {
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const { unreadCount, notifications, markAllRead } = useNotifications();
 
   const content = (
@@ -18,9 +20,10 @@ export default function NotificationBar() {
             e.preventDefault();
             e.stopPropagation();
             markAllRead();
+            setOpen(false);
           }}
         >
-          Mark read
+          Mark all read
         </Button>
       </div>
       {notifications.length === 0 ? (
@@ -34,6 +37,7 @@ export default function NotificationBar() {
               className="notification-item"
               onClick={() => {
                 markAllRead();
+                setOpen(false);
                 navigate(n.route);
               }}
             >
@@ -55,6 +59,8 @@ export default function NotificationBar() {
         trigger="click" 
         placement="bottomRight" 
         content={content}
+        open={open}
+        onOpenChange={setOpen}
         overlayClassName="mobile-notification-popover"
         rootClassName="notification-popover-root"
         autoAdjustOverflow

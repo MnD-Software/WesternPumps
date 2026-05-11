@@ -45,7 +45,11 @@ const ROLE_NAV_PRIORITY: Record<string, string[]> = {
   driver: ["/dashboard", "__notifications__", "/deliveries", "/my-settings"],
 };
 
-export default function NavBar() {
+type Props = {
+  onAction?: () => void;
+};
+
+export default function NavBar({ onAction }: Props) {
   const { isAdmin, user } = useAuth();
   const role = user?.role ?? "technician";
   const navigate = useNavigate();
@@ -194,6 +198,7 @@ export default function NavBar() {
       items={orderedMenuItems}
       onClick={(e) => {
         if (e.key === "__notifications__") {
+          onAction?.();
           // Scroll to top and open the header notification bell (if visible),
           // or navigate to dashboard where notifications are shown.
           window.scrollTo({ top: 0, behavior: "smooth" });
@@ -205,6 +210,7 @@ export default function NavBar() {
           }
           return;
         }
+        onAction?.();
         navigate(e.key);
       }}
       className="app-menu"

@@ -15,6 +15,7 @@ from app.audit import log_audit
 from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.models import (
+    Category,
     Location,
     Part,
     PartLocationStock,
@@ -85,6 +86,22 @@ def _coerce_int(value: Any) -> int | None:
         return None
     try:
         return int(float(text))
+    except ValueError:
+        return None
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return float(text)
     except ValueError:
         return None
 
@@ -188,6 +205,111 @@ def _parse_store_sheet(workbook) -> list[tuple[str, int | None]]:
             seen.add(key)
             records.append((first, qty))
     return records
+
+
+def _get_or_create_category(db: Session, name: str) -> Category:
+    existing = db.scalar(select(Category).where(Category.name == name).limit(1))
+    if existing:
+        return existing
+    category = Category(name=name, is_active=True)
+    db.add(category)
+    db.flush()
+    return category
+
+
+def _looks_like_pricing_sheet(workbook) -> bool:
+    ws = workbook.active
+    for row in ws.iter_rows(min_row=1, max_row=5, values_only=True):
+        cells = [_normalize_text(value).upper() for value in row]
+        if "CATEGORY" in cells and "MATERIAL DESCRIPTION" in cells:
+            return True
+    return False
+
+
+def _parse_pricing_sheet(workbook) -> list[tuple[str, str, str | None, float | None]]:
+    ws = workbook.active
+    rows: list[tuple[str, str, str | None, float | None]] = []
+    for row in ws.iter_rows(values_only=True):
+        category = _normalize_text(row[1] if len(row) > 1 else None)
+        material = _normalize_text(row[2] if len(row) > 2 else None)
+        unit = _normalize_text(row[3] if len(row) > 3 else None) or None
+        rate = _coerce_float(row[4] if len(row) > 4 else None)
+
+        if not material:
+            continue
+        upper_material = material.upper()
+        if upper_material == "MATERIAL DESCRIPTION":
+            continue
+        if not category or category.upper() == "CATEGORY":
+            continue
+        rows.append((category, material, unit, rate))
+    return rows
+
+
+def _import_pricing_inventory(workbook, db: Session, dry_run: bool) -> ImportSummary:
+    rows = _parse_pricing_sheet(workbook)
+    existing_parts = db.scalars(select(Part)).all()
+    by_name_category = {
+        (_normalize_key(part.name), int(part.category_id) if part.category_id else 0): part
+        for part in existing_parts
+    }
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for category_name, material_name, unit, rate in rows:
+        normalized_name = _normalize_key(material_name)
+        normalized_category = _normalize_key(category_name)
+        if not normalized_name or not normalized_category:
+            skipped += 1
+            continue
+
+        if dry_run:
+            created += 1
+            continue
+
+        try:
+            category = _get_or_create_category(db, category_name)
+            existing = by_name_category.get((normalized_name, int(category.id)))
+            if existing is None:
+                part = Part(
+                    sku=generate_system_sku(db),
+                    name=material_name.strip(),
+                    category_id=category.id,
+                    unit_of_measure=unit,
+                    unit_price=rate,
+                    quantity_on_hand=0,
+                    min_quantity=0,
+                    tracking_type="BATCH",
+                    is_active=True,
+                )
+                db.add(part)
+                db.flush()
+                by_name_category[(normalized_name, int(category.id))] = part
+                created += 1
+            else:
+                existing.name = material_name.strip()
+                existing.category_id = category.id
+                existing.unit_of_measure = unit
+                existing.unit_price = rate
+                existing.is_active = True
+                updated += 1
+        except Exception as exc:  # pragma: no cover
+            db.rollback()
+            errors.append(f"{material_name}: {exc}")
+            continue
+
+    if not dry_run:
+        db.commit()
+    return ImportSummary(
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        failed=len(errors),
+        errors=errors[:50],
+    )
 
 
 def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: bool) -> ImportSummary:
@@ -434,7 +556,10 @@ def import_inventory_xlsx(
     current_user: User = Depends(get_current_user),
 ) -> ImportSummary:
     workbook = _load_workbook_from_upload(file)
-    summary = _import_store_inventory(workbook, db, current_user, dry_run)
+    if _looks_like_pricing_sheet(workbook):
+        summary = _import_pricing_inventory(workbook, db, dry_run)
+    else:
+        summary = _import_store_inventory(workbook, db, current_user, dry_run)
     log_audit(
         db,
         current_user,

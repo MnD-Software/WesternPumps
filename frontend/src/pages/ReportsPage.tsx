@@ -3,6 +3,7 @@ import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, 
 import type { Dayjs } from "dayjs";
 import { getApiErrorMessage } from "../api/error";
 import { downloadReport } from "../api/reports";
+import { saveBlob } from "../utils/download";
 
 type ReportFormat = "excel" | "pdf" | "docx" | "csv";
 
@@ -30,17 +31,6 @@ const FILE_EXT: Record<ReportFormat, string> = {
   docx: "docx",
   csv: "csv",
 };
-
-async function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
 
 export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +66,7 @@ export default function ReportsPage() {
     setError(null);
     try {
       const blob = await downloadReport(path, params);
-      await triggerDownload(blob, filename);
+      saveBlob(blob, filename);
     } catch (err) {
       setError(getApiErrorMessage(err, "Failed to download report"));
     }

@@ -8,6 +8,7 @@ import { downloadReport } from "../api/reports";
 import { listMyIssuedItems } from "../api/requests";
 import type { Job } from "../api/types";
 import dayjs from "dayjs";
+import { saveBlob } from "../utils/download";
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -104,14 +105,7 @@ export default function TechnicianReportsPage() {
         filename = `my_job_history_${startDate}_${endDate}.csv`;
       }
       
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      saveBlob(blob, filename);
     } catch (error) {
       console.error("Download failed:", error);
       message.error("Failed to download report");

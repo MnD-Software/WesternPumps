@@ -9,6 +9,7 @@ import { downloadReport } from "../api/reports";
 import { useAuth } from "../state/AuthContext";
 import { formatKes } from "../utils/currency";
 import { formatRequestRef } from "../utils/requestRef";
+import { saveBlobBatch } from "../utils/download";
 
 type ForecastPoint = {
   day: string;
@@ -121,19 +122,11 @@ export default function ConsolePage() {
         downloadReport("/api/reports/stock-movement", { format: "excel" }),
         downloadReport("/api/reports/audit-trail", { format: "excel" })
       ]);
-      const save = (blob: Blob, filename: string) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      };
-      save(stock, "finance-stock-level.xlsx");
-      save(movement, "finance-stock-movement.xlsx");
-      save(audit, "finance-audit-trail.xlsx");
+      await saveBlobBatch([
+        { blob: stock, filename: "finance-stock-level.xlsx" },
+        { blob: movement, filename: "finance-stock-movement.xlsx" },
+        { blob: audit, filename: "finance-audit-trail.xlsx" },
+      ]);
       message.success("Finance pack exported");
     } catch (e: any) {
       message.error(e?.message || "Failed to export finance pack");

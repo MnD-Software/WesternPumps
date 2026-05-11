@@ -16,6 +16,7 @@ import { formatRequestRef } from "../utils/requestRef";
 import { canAccessPage } from "../utils/access";
 import { useNavigate } from "react-router-dom";
 import SmartEmptyState from "../components/SmartEmptyState";
+import { saveBlob } from "../utils/download";
 
 type TrendDatum = {
   label: string;
@@ -56,14 +57,7 @@ function dateOnly(isoLike: string): string {
 
 async function downloadReport(path: string, filename: string) {
   const resp = await api.get(path, { responseType: "blob" });
-  const url = URL.createObjectURL(resp.data);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  saveBlob(resp.data, filename);
 }
 
 function TrendTooltip(props: any) {

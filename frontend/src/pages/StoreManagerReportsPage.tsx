@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../state/AuthContext";
 import { downloadReport } from "../api/reports";
 import { formatKes } from "../utils/currency";
+import { saveBlobBatch } from "../utils/download";
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
@@ -73,17 +74,6 @@ export default function StoreManagerReportsPage() {
     }
   }
 
-  async function triggerDownload(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
   const handleExport = async () => {
     try {
       const [stockBlob, frequentBlob, byTechBlob] = await Promise.all([
@@ -91,9 +81,11 @@ export default function StoreManagerReportsPage() {
         downloadReport("/api/reports/store-manager/frequently-used/export", { start_date: startDate, end_date: endDate, limit: 200 }),
         downloadReport("/api/reports/store-manager/usage-by-technician/export", { start_date: startDate, end_date: endDate }),
       ]);
-      await triggerDownload(stockBlob, `stock_usage_${startDate}_${endDate}.csv`);
-      await triggerDownload(frequentBlob, `frequently_used_${startDate}_${endDate}.csv`);
-      await triggerDownload(byTechBlob, `usage_by_technician_${startDate}_${endDate}.csv`);
+      await saveBlobBatch([
+        { blob: stockBlob, filename: `stock_usage_${startDate}_${endDate}.csv` },
+        { blob: frequentBlob, filename: `frequently_used_${startDate}_${endDate}.csv` },
+        { blob: byTechBlob, filename: `usage_by_technician_${startDate}_${endDate}.csv` },
+      ]);
     } catch (err) {
       console.error("Export failed:", err);
       message.error("Failed to export reports");

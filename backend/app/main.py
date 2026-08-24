@@ -23,7 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.config import settings
-from app.db import Base, SessionLocal, engine, ensure_schema
+from app.db import Base, SessionLocal, database_url, engine, ensure_schema
 from app.deps import require_roles
 from app.models import User
 from app.security import get_password_hash
@@ -72,6 +72,24 @@ class UptimeMetrics:
 
 uptime_metrics = UptimeMetrics()
 startup_database_error: str | None = None
+startup_database_error_detail: str | None = None
+
+
+def _short_error_detail(exc: BaseException) -> str:
+    detail = " ".join(str(exc).split())
+    if not detail:
+        return exc.__class__.__name__
+    return detail[:500]
+
+
+def _database_target() -> dict[str, str]:
+    url = engine.url
+    return {
+        "driver": url.drivername,
+        "host": url.host or "",
+        "database": url.database or "",
+        "configured": "true" if database_url else "false",
+    }
 
 
 def _configure_error_logger() -> logging.Logger:
@@ -193,7 +211,7 @@ def create_app() -> FastAPI:
     error_logger = _configure_error_logger()
 
     def _on_startup() -> None:
-        global startup_database_error
+        global startup_database_error, startup_database_error_detail
         if not settings.disable_auth:
             secret = (settings.jwt_secret or "").strip()
             forbidden = {"", "change-me", "MUST-BE-SET-VIA-ENV"}
@@ -205,8 +223,10 @@ def create_app() -> FastAPI:
             try:
                 ensure_schema(engine)
                 startup_database_error = None
+                startup_database_error_detail = None
             except (OSError, SQLAlchemyError) as exc:
                 startup_database_error = exc.__class__.__name__
+                startup_database_error_detail = _short_error_detail(exc)
                 error_logger.exception("Database schema setup failed during startup; API will run in degraded mode.")
         if settings.seed_admin_email and settings.seed_admin_password:
             if startup_database_error is not None:
@@ -242,8 +262,10 @@ def create_app() -> FastAPI:
             return {
                 "status": "unavailable",
                 "startup_error": startup_database_error or exc.__class__.__name__,
+                "detail": startup_database_error_detail or _short_error_detail(exc),
+                "target": _database_target(),
             }
-        return {"status": "ok"}
+        return {"status": "ok", "target": _database_target()}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

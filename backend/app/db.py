@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker, with_loader_criteria
 from sqlalchemy.pool import StaticPool
 
@@ -16,17 +17,36 @@ class Base(DeclarativeBase):
     pass
 
 
-engine_kwargs: dict[str, object] = {"pool_pre_ping": True}
-if settings.database_url.startswith("sqlite"):
-    engine_kwargs = {"connect_args": {"check_same_thread": False}}
-    if ":memory:" in settings.database_url:
-        engine_kwargs["poolclass"] = StaticPool
-elif settings.database_url.startswith("postgresql"):
-    engine_kwargs["connect_args"] = {"connect_timeout": 5}
-elif settings.database_url.startswith("mysql"):
-    engine_kwargs["connect_args"] = {"connect_timeout": 5}
+def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("postgres://"):
+        return "postgresql://" + database_url.removeprefix("postgres://")
+    return database_url
 
-engine = create_engine(settings.database_url, **engine_kwargs)
+
+def build_engine_kwargs(database_url: str) -> dict[str, object]:
+    kwargs: dict[str, object] = {"pool_pre_ping": True}
+    normalized_url = normalize_database_url(database_url)
+    url = make_url(normalized_url)
+    drivername = url.drivername.lower()
+    if drivername.startswith("sqlite"):
+        kwargs = {"connect_args": {"check_same_thread": False}}
+        if ":memory:" in normalized_url:
+            kwargs["poolclass"] = StaticPool
+    elif drivername.startswith("postgresql"):
+        connect_args: dict[str, object] = {"connect_timeout": 15}
+        host = (url.host or "").lower()
+        if host.endswith(".render.com") and not host.endswith(".render-internal.com") and "sslmode" not in url.query:
+            connect_args["sslmode"] = "require"
+        kwargs["connect_args"] = connect_args
+    elif drivername.startswith("mysql"):
+        kwargs["connect_args"] = {"connect_timeout": 15}
+    return kwargs
+
+
+database_url = normalize_database_url(settings.database_url)
+engine_kwargs = build_engine_kwargs(database_url)
+
+engine = create_engine(database_url, **engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

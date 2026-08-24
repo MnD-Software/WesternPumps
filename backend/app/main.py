@@ -301,6 +301,21 @@ def create_app() -> FastAPI:
             content={"detail": exc.detail, "request_id": getattr(request.state, "request_id", "")},
         )
 
+    @app.exception_handler(SQLAlchemyError)
+    async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+        error_logger.error(
+            "Database error on %s %s req=%s (origin=%s): %s",
+            request.method,
+            request.url.path,
+            getattr(request.state, "request_id", ""),
+            request.headers.get("origin", ""),
+            exc.__class__.__name__,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Database unavailable", "request_id": getattr(request.state, "request_id", "")},
+        )
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
         error_logger.error(

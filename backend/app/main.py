@@ -18,6 +18,8 @@ from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
@@ -70,6 +72,7 @@ class UptimeMetrics:
 
 
 uptime_metrics = UptimeMetrics()
+startup_database_error: str | None = None
 
 
 def _configure_error_logger() -> logging.Logger:
@@ -184,6 +187,7 @@ def create_app() -> FastAPI:
     error_logger = _configure_error_logger()
 
     def _on_startup() -> None:
+        global startup_database_error
         if not settings.disable_auth:
             secret = (settings.jwt_secret or "").strip()
             forbidden = {"", "change-me", "MUST-BE-SET-VIA-ENV"}
@@ -192,8 +196,16 @@ def create_app() -> FastAPI:
                     "JWT_SECRET must be set to a strong random value (≥32 chars) when auth is enabled."
                 )
         if settings.auto_create_tables:
-            ensure_schema(engine)
+            try:
+                ensure_schema(engine)
+                startup_database_error = None
+            except (OSError, SQLAlchemyError) as exc:
+                startup_database_error = exc.__class__.__name__
+                error_logger.exception("Database schema setup failed during startup; API will run in degraded mode.")
         if settings.seed_admin_email and settings.seed_admin_password:
+            if startup_database_error is not None:
+                error_logger.warning("Skipping seed admin setup because the database is unavailable.")
+                return
             db = SessionLocal()
             try:
                 email = settings.seed_admin_email.strip().lower()
@@ -215,6 +227,17 @@ def create_app() -> FastAPI:
                     db.commit()
             finally:
                 db.close()
+
+    def _database_health() -> dict[str, str]:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except (OSError, SQLAlchemyError) as exc:
+            return {
+                "status": "unavailable",
+                "startup_error": startup_database_error or exc.__class__.__name__,
+            }
+        return {"status": "ok"}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -294,8 +317,8 @@ def create_app() -> FastAPI:
         return {"message": "WesternPumps API", "docs": "/docs", "health": "/health"}
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> dict[str, object]:
+        return {"status": "ok", "database": _database_health()}
 
     @app.get("/health/slo")
     def health_slo() -> dict[str, object]:

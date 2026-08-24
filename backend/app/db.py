@@ -21,6 +21,10 @@ if settings.database_url.startswith("sqlite"):
     engine_kwargs = {"connect_args": {"check_same_thread": False}}
     if ":memory:" in settings.database_url:
         engine_kwargs["poolclass"] = StaticPool
+elif settings.database_url.startswith("postgresql"):
+    engine_kwargs["connect_args"] = {"connect_timeout": 5}
+elif settings.database_url.startswith("mysql"):
+    engine_kwargs["connect_args"] = {"connect_timeout": 5}
 
 engine = create_engine(settings.database_url, **engine_kwargs)
 

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = '0003'
-down_revision = '0002'
+down_revision = '0002_platform_hardening'
 branch_labels = None
 depends_on = None
 

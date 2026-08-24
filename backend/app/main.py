@@ -14,7 +14,6 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -114,14 +113,21 @@ class RequestErrorLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             response = await call_next(request)
-        except Exception:
+        except Exception as exc:
             self.logger.exception(
                 "Unhandled exception during %s %s (origin=%s)",
                 request.method,
                 request.url.path,
                 request.headers.get("origin", ""),
             )
-            raise
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "detail": "Internal server error",
+                    "request_id": getattr(request.state, "request_id", ""),
+                    "error": exc.__class__.__name__,
+                },
+            )
         if response.status_code >= 400:
             self.logger.warning(
                 "HTTP %s %s -> %s (origin=%s)",
@@ -244,11 +250,7 @@ def create_app() -> FastAPI:
         _on_startup()
         yield
 
-    app = FastAPI(
-        title="WesternPumps API",
-        middleware=[Middleware(RequestErrorLoggingMiddleware, logger=error_logger)],
-        lifespan=lifespan,
-    )
+    app = FastAPI(title="WesternPumps API", lifespan=lifespan)
 
     # CORS configuration
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
@@ -260,6 +262,13 @@ def create_app() -> FastAPI:
     # Keeping credentials disabled avoids invalid configurations like "*" + credentials.
     allow_credentials = False
 
+    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(HttpsEnforcementMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestMetricsMiddleware)
+    app.add_middleware(RequestErrorLoggingMiddleware, logger=error_logger)
+    # Add CORS last so it wraps the custom middleware stack and also decorates
+    # handled 5xx responses returned by FastAPI's exception handlers.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,
@@ -269,10 +278,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Content-Length", "Content-Type"],
     )
-    app.add_middleware(RequestIdMiddleware)
-    app.add_middleware(HttpsEnforcementMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(RequestMetricsMiddleware)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):

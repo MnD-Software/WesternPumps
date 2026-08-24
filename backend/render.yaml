@@ -20,7 +20,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://western-pumps-np2i.vercel.app"
       - key: DISABLE_AUTH
         value: "false"
       - key: ENABLE_AUTH_BOOTSTRAP

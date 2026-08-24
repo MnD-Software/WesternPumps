@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import settings as env_settings
@@ -46,8 +47,14 @@ class EffectiveSettings:
 
 
 def _get_raw_setting(db: Session, key: str) -> str | None:
-    row = db.scalar(select(AppSetting).where(AppSetting.key == key).limit(1))
-    return row.value if row else None
+    try:
+        return db.execute(
+            text("SELECT value FROM app_settings WHERE key = :key LIMIT 1"),
+            {"key": key},
+        ).scalar_one_or_none()
+    except SQLAlchemyError:
+        db.rollback()
+        return None
 
 
 def _parse_bool(value: str | None, default: bool) -> bool:
@@ -122,6 +129,8 @@ def get_effective_settings(db: Session) -> EffectiveSettings:
 
 
 def upsert_setting(db: Session, *, key: str, value: str, updated_by_user_id: int | None) -> AppSetting:
+    from sqlalchemy import select
+
     row = db.scalar(select(AppSetting).where(AppSetting.key == key).limit(1))
     if row is None:
         row = AppSetting(key=key, value=value, updated_by_user_id=updated_by_user_id)

@@ -251,6 +251,24 @@ def ensure_schema(engine: Engine) -> None:
         if not has_tenant_idx:
             with engine.begin() as conn:
                 conn.execute(text(f"CREATE INDEX ix_{table_name}_tenant_id ON {table_name} (tenant_id)"))
+    if inspector.has_table("app_settings"):
+        app_settings_columns = {c["name"] for c in inspector.get_columns("app_settings")}
+        with engine.begin() as conn:
+            if "updated_by_user_id" not in app_settings_columns:
+                conn.execute(text("ALTER TABLE app_settings ADD COLUMN updated_by_user_id INTEGER NULL"))
+            if "created_at" not in app_settings_columns:
+                conn.execute(text(f"ALTER TABLE app_settings ADD COLUMN created_at {datetime_type} NULL"))
+                conn.execute(text("UPDATE app_settings SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
+            if "updated_at" not in app_settings_columns:
+                conn.execute(text(f"ALTER TABLE app_settings ADD COLUMN updated_at {datetime_type} NULL"))
+                conn.execute(text("UPDATE app_settings SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"))
+        app_settings_indexes = inspector.get_indexes("app_settings")
+        has_app_settings_updated_by_index = any(
+            "updated_by_user_id" in (idx.get("column_names") or []) for idx in app_settings_indexes
+        )
+        if not has_app_settings_updated_by_index:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE INDEX ix_app_settings_updated_by_user_id ON app_settings (updated_by_user_id)"))
     if inspector.has_table("user_preferences"):
         pref_indexes = inspector.get_indexes("user_preferences")
         has_user_pref_unique = any(

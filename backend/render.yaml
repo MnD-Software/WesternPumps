@@ -1,3 +1,9 @@
+databases:
+  - name: westernpumps-db
+    plan: free
+    databaseName: westernpumps
+    user: westernpumps
+
 services:
   - type: web
     name: WesternPumps
@@ -8,7 +14,9 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: westernpumps-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGINS

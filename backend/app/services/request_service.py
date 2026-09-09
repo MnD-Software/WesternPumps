@@ -250,6 +250,48 @@ class RequestService:
         )
         return request
 
+    def mark_request_not_issued(self, *, request_id: int, current_user: User, reason: str) -> StockRequest:
+        cleaned_reason = (reason or "").strip()
+        if not cleaned_reason:
+            raise ServiceError("Not-issued remark is required", 400)
+
+        request = self.repo.get_request(request_id)
+        if not request:
+            raise ServiceError("Request not found", 404)
+        if request.status != StockRequestStatus.APPROVED:
+            raise ServiceError("Only approved requests can be marked not issued", 400)
+
+        request.status = StockRequestStatus.NOT_ISSUED
+        request.not_issued_reason = cleaned_reason
+        request.not_issued_by_user_id = current_user.id
+        request.not_issued_at = datetime.now(UTC)
+
+        log_audit(
+            self.repo.db,
+            current_user,
+            action="not_issued",
+            entity_type="stock_request",
+            entity_id=request.id,
+            detail={"reason": cleaned_reason},
+        )
+        self.repo.commit()
+        self.repo.refresh(request)
+
+        requester_recipients: list[str] = []
+        if request.requested_by and request.requested_by.email:
+            requester_recipients.append(request.requested_by.email)
+        if request.requested_by and request.requested_by.phone:
+            requester_recipients.append(request.requested_by.phone)
+        dispatch_alert(
+            self.repo.db,
+            actor=current_user,
+            event="request_not_issued",
+            subject=f"Stock Request #{request.id} Not Issued",
+            body=f"Request #{request.id} was not issued by {current_user.email}. Remark: {cleaned_reason}",
+            extra_recipients=requester_recipients or None,
+        )
+        return request
+
     def issue_request(self, *, request_id: int, current_user: User, lines: list[dict]) -> StockRequest:
         request = self.repo.get_request(request_id)
         if not request:

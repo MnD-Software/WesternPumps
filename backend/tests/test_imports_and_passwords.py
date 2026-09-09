@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.db import SessionLocal
 from app.main import app
 from app.models import PasswordResetToken, ProductAttachment, TechnicianZoneAssignment, User
+from app.routers.imports import _parse_store_sheet
 from app.security import verify_password
 
 
@@ -32,6 +33,16 @@ def _build_store_workbook(wb) -> None:
     ws2.append(["Motor relay"])
     ws2.append(["Motor relay"])
     ws2.append(['3/4" ZVA Breakaway'])
+
+
+def _build_current_inventory_workbook(wb) -> None:
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["ITEM DESCRIPTION", "UNIT", "ITEMS AT HAND", "MINIMUM STOCK"])
+    ws.append(["NOZZLES", None, None, None])
+    ws.append(['3/4" ZVA nozzle', "No.", 7, 5])
+    ws.append(["BREAKAWAYS", None, None, None])
+    ws.append(['3/4" ZVA Breakaway', "No.", 3, 2])
 
 
 def _build_technician_workbook(wb) -> None:
@@ -59,6 +70,22 @@ def _build_technician_workbook(wb) -> None:
     ws.append(["SURVEY", "TEMK", None, "CHUKA SERVICE STATION", "VEK", None, "JUJA", "TEMK"])
 
 
+def test_current_inventory_workbook_parser_reads_categories_stock_and_minimums() -> None:
+    wb = openpyxl.Workbook()
+    _build_current_inventory_workbook(wb)
+
+    rows = _parse_store_sheet(wb)
+
+    assert [row.name for row in rows] == ['3/4" ZVA nozzle', '3/4" ZVA Breakaway']
+    assert rows[0].category_name == "NOZZLES"
+    assert rows[0].unit_of_measure == "No."
+    assert rows[0].quantity_on_hand == 7
+    assert rows[0].min_quantity == 5
+    assert rows[1].category_name == "BREAKAWAYS"
+    assert rows[1].quantity_on_hand == 3
+    assert rows[1].min_quantity == 2
+
+
 def test_inventory_import_and_low_stock_listing() -> None:
     workbook = _xlsx_bytes(_build_store_workbook)
 
@@ -70,6 +97,7 @@ def test_inventory_import_and_low_stock_listing() -> None:
         assert resp.status_code == 200, resp.text
         payload = resp.json()
         assert payload["created"] >= 4
+        assert payload["deactivated"] == 0
         assert payload["failed"] == 0
 
         items_resp = client.get("/api/items", params={"page": 1, "page_size": 100})

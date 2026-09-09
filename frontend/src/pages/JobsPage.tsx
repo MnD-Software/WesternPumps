@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, Upload } from "antd";
+import { App as AntdApp, Button, Card, Drawer, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Typography, Upload } from "antd";
 import type { MenuProps } from "antd";
 import { MoreOutlined, CameraOutlined, UploadOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { listCustomers } from "../api/customers";
@@ -47,8 +47,6 @@ export default function JobsPage() {
   const [priority, setPriority] = useState("medium");
   const [assignedTo, setAssignedTo] = useState<number | "">("");
   const [siteLocationLabel, setSiteLocationLabel] = useState("");
-  const [siteLatitude, setSiteLatitude] = useState<number | null>(null);
-  const [siteLongitude, setSiteLongitude] = useState<number | null>(null);
 
   const [searchInput, setSearchInput] = useState("");
   const [filterStatus, setFilterStatus] = useState<string | "">("");
@@ -73,8 +71,6 @@ export default function JobsPage() {
   const [editPriority, setEditPriority] = useState("medium");
   const [editAssignedTo, setEditAssignedTo] = useState<number | "">("");
   const [editSiteLocationLabel, setEditSiteLocationLabel] = useState("");
-  const [editSiteLatitude, setEditSiteLatitude] = useState<number | null>(null);
-  const [editSiteLongitude, setEditSiteLongitude] = useState<number | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   async function refresh() {
@@ -177,8 +173,8 @@ export default function JobsPage() {
       setError("Title is required");
       return;
     }
-    if (siteLatitude == null || siteLongitude == null) {
-      setError("Job site latitude and longitude are required");
+    if (!siteLocationLabel.trim()) {
+      setError("Site name is required");
       return;
     }
     setSaving(true);
@@ -191,8 +187,6 @@ export default function JobsPage() {
         priority,
         assigned_to_user_id: assignedTo === "" ? null : Number(assignedTo),
         site_location_label: siteLocationLabel.trim() || null,
-        site_latitude: siteLatitude,
-        site_longitude: siteLongitude,
       });
       setCustomerId("");
       setTitle("");
@@ -201,8 +195,6 @@ export default function JobsPage() {
       setPriority("medium");
       setAssignedTo("");
       setSiteLocationLabel("");
-      setSiteLatitude(null);
-      setSiteLongitude(null);
       message.success("Job created");
       await refresh();
     } catch (err: any) {
@@ -221,8 +213,6 @@ export default function JobsPage() {
     setEditPriority(job.priority || "medium");
     setEditAssignedTo(job.assigned_to_user_id ?? "");
     setEditSiteLocationLabel(job.site_location_label ?? "");
-    setEditSiteLatitude(job.site_latitude ?? null);
-    setEditSiteLongitude(job.site_longitude ?? null);
   }
 
   async function handleUpdate() {
@@ -236,8 +226,8 @@ export default function JobsPage() {
       setError("Title is required");
       return;
     }
-    if (editSiteLatitude == null || editSiteLongitude == null) {
-      setError("Job site latitude and longitude are required");
+    if (!editSiteLocationLabel.trim()) {
+      setError("Site name is required");
       return;
     }
     setSaving(true);
@@ -250,8 +240,6 @@ export default function JobsPage() {
         priority: editPriority,
         assigned_to_user_id: editAssignedTo === "" ? null : Number(editAssignedTo),
         site_location_label: editSiteLocationLabel.trim() || null,
-        site_latitude: editSiteLatitude,
-        site_longitude: editSiteLongitude,
       });
       message.success("Job updated");
       setEditing(null);
@@ -530,29 +518,9 @@ export default function JobsPage() {
             <Form.Item label="Description">
               <Input.TextArea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
             </Form.Item>
-            <Form.Item label="Site label (optional)">
+            <Form.Item label="Site name" required>
               <Input value={siteLocationLabel} onChange={(e) => setSiteLocationLabel(e.target.value)} placeholder="e.g. Pump station A" />
             </Form.Item>
-            <Space style={{ width: "100%" }} wrap>
-              <Form.Item label="Site latitude" required style={{ minWidth: 220, flex: 1 }}>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={siteLatitude}
-                  onChange={(value) => setSiteLatitude(value == null ? null : Number(value))}
-                  placeholder="e.g. -1.292066"
-                  step={0.000001}
-                />
-              </Form.Item>
-              <Form.Item label="Site longitude" required style={{ minWidth: 220, flex: 1 }}>
-                <InputNumber
-                  style={{ width: "100%" }}
-                  value={siteLongitude}
-                  onChange={(value) => setSiteLongitude(value == null ? null : Number(value))}
-                  placeholder="e.g. 36.821946"
-                  step={0.000001}
-                />
-              </Form.Item>
-            </Space>
             <Form.Item label="Status">
               <Select value={status} onChange={(value) => setStatus(value)} options={statusOptions} />
             </Form.Item>
@@ -837,27 +805,9 @@ export default function JobsPage() {
           <Form.Item label="Description">
             <Input.TextArea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} rows={4} />
           </Form.Item>
-          <Form.Item label="Site label (optional)">
+          <Form.Item label="Site name" required>
             <Input value={editSiteLocationLabel} onChange={(e) => setEditSiteLocationLabel(e.target.value)} placeholder="e.g. Pump station A" />
           </Form.Item>
-          <Space style={{ width: "100%" }} wrap>
-            <Form.Item label="Site latitude" required style={{ minWidth: 220, flex: 1 }}>
-              <InputNumber
-                style={{ width: "100%" }}
-                value={editSiteLatitude}
-                onChange={(value) => setEditSiteLatitude(value == null ? null : Number(value))}
-                step={0.000001}
-              />
-            </Form.Item>
-            <Form.Item label="Site longitude" required style={{ minWidth: 220, flex: 1 }}>
-              <InputNumber
-                style={{ width: "100%" }}
-                value={editSiteLongitude}
-                onChange={(value) => setEditSiteLongitude(value == null ? null : Number(value))}
-                step={0.000001}
-              />
-            </Form.Item>
-          </Space>
           <Form.Item label="Status">
             <Select value={editStatus} onChange={(value) => setEditStatus(value)} options={statusOptions} />
           </Form.Item>

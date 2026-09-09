@@ -28,6 +28,7 @@ export default function LeadTechReportsPage() {
     inProgressJobs: 0,
     totalTechnicians: 0,
   });
+  const canViewReportValues = ["admin", "manager", "store_manager", "finance"].includes(user?.role ?? "");
 
   // Initialize dates
   useEffect(() => {
@@ -129,21 +130,23 @@ export default function LeadTechReportsPage() {
     },
     {
       title: "Total Items Used",
-      dataIndex: "total_items",
-      key: "total_items",
+      dataIndex: "total_parts_used",
+      key: "total_parts_used",
     },
-    {
-      title: "Total Value",
-      dataIndex: "total_value",
-      key: "total_value",
-      render: (val: number) => formatKes(val ?? 0),
-    },
+    canViewReportValues
+      ? {
+          title: "Total Value",
+          dataIndex: "total_value",
+          key: "total_value",
+          render: (val: number | null) => formatKes(val ?? 0),
+        }
+      : null,
     {
       title: "Unique Items",
       dataIndex: "unique_items",
       key: "unique_items",
     },
-  ];
+  ].filter(Boolean) as any;
 
   // Frequent items columns
   const itemColumns = [

@@ -44,6 +44,11 @@ def _csv_response(*, filename: str, headers: list[str], rows: list[list[str]]) -
 MAX_REPORT_RANGE_DAYS = 366
 
 
+def _can_view_inventory_values(current_user: User) -> bool:
+    role = "technician" if current_user.role == "staff" else (current_user.role or "")
+    return role in {"admin", "manager", "store_manager", "finance"}
+
+
 def _coerce_date_range(
     *,
     start_date: Optional[date],
@@ -731,7 +736,7 @@ class StockUsageResponse(BaseModel):
     sku: str
     category: Optional[str]
     total_used: int
-    total_value: float
+    total_value: Optional[float] = None
     usage_count: int
 
 
@@ -774,6 +779,7 @@ def get_stock_usage_report(
     )
 
     rows = db.execute(stmt).all()
+    can_view_values = _can_view_inventory_values(current_user)
     return [
         {
             "part_id": int(r.part_id),
@@ -782,7 +788,7 @@ def get_stock_usage_report(
             "category": r.category,
             "total_used": int(r.total_used or 0),
             "usage_count": int(r.usage_count or 0),
-            "total_value": round(float(r.total_value or 0), 2),
+            "total_value": round(float(r.total_value or 0), 2) if can_view_values else None,
         }
         for r in rows
     ]
@@ -858,15 +864,15 @@ class StockUsageByTechnicianResponse(BaseModel):
     technician_name: str
     total_transactions: int
     total_parts_used: int
-    total_value: float
+    total_value: Optional[float] = None
     parts_list: list[dict]
 
 
 class IssuanceKpiResponse(BaseModel):
     total_issue_transactions: int
     total_issue_quantity: int
-    total_issue_value: float
-    avg_issue_value: float
+    total_issue_value: Optional[float] = None
+    avg_issue_value: Optional[float] = None
     pending_returns: int
     return_approval_rate_percent: float
 
@@ -900,6 +906,7 @@ def get_stock_usage_by_technician(
 
     qty_abs = func.abs(StockTransaction.quantity_delta)
     unit_price = func.coalesce(Part.unit_price, 0)
+    can_view_values = _can_view_inventory_values(current_user)
 
     results: list[dict[str, Any]] = []
     for tech in tech_rows:
@@ -921,7 +928,11 @@ def get_stock_usage_by_technician(
                 StockTransaction.created_at <= end_dt,
             )
             .group_by(Part.id, Part.name, Part.sku)
-            .order_by(func.coalesce(func.sum(qty_abs * unit_price), 0).desc())
+            .order_by(
+                func.coalesce(func.sum(qty_abs * unit_price), 0).desc()
+                if can_view_values
+                else func.coalesce(func.sum(qty_abs), 0).desc()
+            )
             .limit(parts_limit)
         )
 
@@ -935,7 +946,7 @@ def get_stock_usage_by_technician(
                 "part_name": r.part_name,
                 "sku": r.sku,
                 "quantity": int(r.quantity or 0),
-                "value": round(float(r.value or 0), 2),
+                "value": round(float(r.value or 0), 2) if can_view_values else None,
             }
             for r in part_rows
         ]
@@ -946,12 +957,12 @@ def get_stock_usage_by_technician(
                 "technician_name": tech.full_name or tech.email,
                 "total_transactions": int(total_transactions),
                 "total_parts_used": int(total_parts_used),
-                "total_value": round(float(total_value), 2),
+                "total_value": round(float(total_value), 2) if can_view_values else None,
                 "parts_list": parts_list,
             }
         )
 
-    results.sort(key=lambda x: x["total_value"], reverse=True)
+    results.sort(key=lambda x: x["total_value"] if can_view_values else x["total_parts_used"], reverse=True)
     return results
 
 
@@ -988,6 +999,7 @@ def get_store_manager_issuance_kpis(
 
     qty_abs = func.abs(StockTransaction.quantity_delta)
     unit_price = func.coalesce(Part.unit_price, 0)
+    can_view_values = _can_view_inventory_values(current_user)
 
     issue_rows = db.execute(
         select(
@@ -1018,8 +1030,8 @@ def get_store_manager_issuance_kpis(
     return {
         "total_issue_transactions": total_issue_transactions,
         "total_issue_quantity": int(issue_rows.qty_sum or 0),
-        "total_issue_value": round(total_issue_value, 2),
-        "avg_issue_value": round(avg_issue_value, 2),
+        "total_issue_value": round(total_issue_value, 2) if can_view_values else None,
+        "avg_issue_value": round(avg_issue_value, 2) if can_view_values else None,
         "pending_returns": pending_returns,
         "return_approval_rate_percent": round(approval_rate, 2),
     }
@@ -1070,20 +1082,23 @@ def export_stock_usage_report(
     current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ) -> Response:
     rows = get_stock_usage_report(start_date=start_date, end_date=end_date, limit=limit, db=db, current_user=current_user)
-    headers = ["Part ID", "SKU", "Part Name", "Category", "Total Used", "Usage Count", "Total Value"]
+    can_view_values = _can_view_inventory_values(current_user)
+    headers = ["Part ID", "SKU", "Part Name", "Category", "Total Used", "Usage Count"]
+    if can_view_values:
+        headers.append("Total Value")
     csv_rows: list[list[str]] = []
     for r in rows:
-        csv_rows.append(
-            [
-                str(r.get("part_id", "")),
-                str(r.get("sku", "")),
-                str(r.get("part_name", "")),
-                str(r.get("category", "")),
-                str(r.get("total_used", 0)),
-                str(r.get("usage_count", 0)),
-                str(r.get("total_value", 0)),
-            ]
-        )
+        row = [
+            str(r.get("part_id", "")),
+            str(r.get("sku", "")),
+            str(r.get("part_name", "")),
+            str(r.get("category", "")),
+            str(r.get("total_used", 0)),
+            str(r.get("usage_count", 0)),
+        ]
+        if can_view_values:
+            row.append(str(r.get("total_value", 0)))
+        csv_rows.append(row)
     filename = f"stock-usage-{(start_date or date.today()).isoformat()}-{(end_date or date.today()).isoformat()}.csv"
     return _csv_response(filename=filename, headers=headers, rows=csv_rows)
 
@@ -1123,18 +1138,21 @@ def export_usage_by_technician(
     current_user: User = Depends(require_roles("store_manager", "manager", "finance", "lead_technician")),
 ) -> Response:
     rows = get_stock_usage_by_technician(start_date=start_date, end_date=end_date, db=db, current_user=current_user)
-    headers = ["Technician ID", "Technician", "Total Transactions", "Total Parts Used", "Total Value"]
+    can_view_values = _can_view_inventory_values(current_user)
+    headers = ["Technician ID", "Technician", "Total Transactions", "Total Parts Used"]
+    if can_view_values:
+        headers.append("Total Value")
     csv_rows: list[list[str]] = []
     for r in rows:
-        csv_rows.append(
-            [
-                str(r.get("technician_id", "")),
-                str(r.get("technician_name", "")),
-                str(r.get("total_transactions", 0)),
-                str(r.get("total_parts_used", 0)),
-                str(r.get("total_value", 0)),
-            ]
-        )
+        row = [
+            str(r.get("technician_id", "")),
+            str(r.get("technician_name", "")),
+            str(r.get("total_transactions", 0)),
+            str(r.get("total_parts_used", 0)),
+        ]
+        if can_view_values:
+            row.append(str(r.get("total_value", 0)))
+        csv_rows.append(row)
     filename = f"usage-by-technician-{(start_date or date.today()).isoformat()}-{(end_date or date.today()).isoformat()}.csv"
     return _csv_response(filename=filename, headers=headers, rows=csv_rows)
 
@@ -1148,7 +1166,7 @@ class TechnicianMyUsageResponse(BaseModel):
     technician_name: str
     total_transactions: int
     total_parts_used: int
-    total_value: float
+    total_value: Optional[float] = None
     parts_list: list[dict]
 
 
@@ -1168,6 +1186,7 @@ def get_my_stock_usage(
 
     qty_abs = func.abs(StockTransaction.quantity_delta)
     unit_price = func.coalesce(Part.unit_price, 0)
+    can_view_values = _can_view_inventory_values(current_user)
 
     stmt = (
         select(
@@ -1187,7 +1206,11 @@ def get_my_stock_usage(
             StockTransaction.created_at <= end_dt,
         )
         .group_by(Part.id, Part.name, Part.sku)
-        .order_by(func.coalesce(func.sum(qty_abs * unit_price), 0).desc())
+        .order_by(
+            func.coalesce(func.sum(qty_abs * unit_price), 0).desc()
+            if can_view_values
+            else func.coalesce(func.sum(qty_abs), 0).desc()
+        )
     )
     rows = db.execute(stmt).all()
 
@@ -1200,14 +1223,14 @@ def get_my_stock_usage(
         "technician_name": current_user.full_name or current_user.email,
         "total_transactions": int(total_transactions),
         "total_parts_used": total_parts,
-        "total_value": round(total_value, 2),
+        "total_value": round(total_value, 2) if can_view_values else None,
         "parts_list": [
             {
                 "part_id": int(r.part_id),
                 "part_name": r.part_name,
                 "sku": r.sku,
                 "quantity": int(r.quantity or 0),
-                "value": round(float(r.value or 0), 2),
+                "value": round(float(r.value or 0), 2) if can_view_values else None,
             }
             for r in rows
         ],

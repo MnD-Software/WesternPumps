@@ -316,7 +316,7 @@ def _build_role_scoped_context(db: Session, current_user: User, mode: str) -> di
                     "status": str(r.status),
                     "requested_by_user_id": r.requested_by_user_id,
                     "created_at": r.created_at.isoformat() if isinstance(r.created_at, datetime) else str(r.created_at),
-                    "total_value": _as_float(r.total_value),
+                    "total_value": _as_float(r.total_value) if can_view_finance else None,
                 }
                 for r in request_rows
             ],

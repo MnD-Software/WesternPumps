@@ -43,8 +43,10 @@ def create_job(
     if not customer:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer_id")
 
-    if payload.site_latitude is None or payload.site_longitude is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job site latitude and longitude are required")
+    if not (payload.site_location_label or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job site name is required")
+    if (payload.site_latitude is None) ^ (payload.site_longitude is None):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide both site_latitude and site_longitude together")
 
     if current_user.role == "lead_technician":
         if payload.assigned_to_user_id is None:
@@ -97,14 +99,16 @@ def update_job(job_id: int, payload: JobUpdate, db: Session = Depends(get_db), c
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
+    changes = payload.model_dump(exclude_unset=True)
     if payload.customer_id is not None and not db.get(Customer, payload.customer_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer_id")
-    if ("site_latitude" in payload.model_dump(exclude_unset=True)) ^ ("site_longitude" in payload.model_dump(exclude_unset=True)):
+    if "site_location_label" in changes and not (changes.get("site_location_label") or "").strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Job site name is required")
+    if ("site_latitude" in changes) ^ ("site_longitude" in changes):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide both site_latitude and site_longitude together")
 
     previous_assignee_id = job.assigned_to_user_id
     previous_status = (job.status or "open").lower()
-    changes = payload.model_dump(exclude_unset=True)
     assignee = db.get(User, job.assigned_to_user_id) if job.assigned_to_user_id else None
     if "assigned_to_user_id" in changes:
         assigned_to_user_id = changes["assigned_to_user_id"]

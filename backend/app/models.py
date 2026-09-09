@@ -528,6 +528,7 @@ class StockRequestStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    NOT_ISSUED = "NOT_ISSUED"
     ISSUED = "ISSUED"
     CLOSED = "CLOSED"
 
@@ -547,12 +548,16 @@ class StockRequest(Base, TimestampMixin):
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rejected_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    not_issued_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    not_issued_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    not_issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     closure_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # RETURNED | SOLD
     closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     wave_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pick_waves.id"), nullable=True, index=True)
 
     requested_by: Mapped["User"] = relationship(back_populates="stock_requests", foreign_keys=[requested_by_user_id])
     approved_by: Mapped[Optional["User"]] = relationship(back_populates="approvals", foreign_keys=[approved_by_user_id])
+    not_issued_by: Mapped[Optional["User"]] = relationship(foreign_keys=[not_issued_by_user_id])
     lines: Mapped[list["StockRequestLine"]] = relationship(back_populates="request", cascade="all, delete-orphan")
     transactions: Mapped[list["StockTransaction"]] = relationship(back_populates="request")
 

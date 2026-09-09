@@ -344,6 +344,8 @@ class StockRequestCreate(StockRequestBase):
 class StockRequestRead(StockRequestBase):
     id: int
     requested_by_user_id: int
+    requested_by_name: Optional[str] = None
+    requested_by_email: Optional[str] = None
     status: str
     total_value: Optional[float] = None
     required_approval_role: Optional[str] = None
@@ -351,6 +353,9 @@ class StockRequestRead(StockRequestBase):
     approved_at: Optional[datetime] = None
     approved_comment: Optional[str] = None
     rejected_reason: Optional[str] = None
+    not_issued_reason: Optional[str] = None
+    not_issued_by_user_id: Optional[int] = None
+    not_issued_at: Optional[datetime] = None
     closure_type: Optional[str] = None
     closed_at: Optional[datetime] = None
     lines: list[StockRequestLineRead]

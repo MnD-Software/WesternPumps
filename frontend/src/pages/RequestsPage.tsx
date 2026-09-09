@@ -14,6 +14,7 @@ import {
   listMyReturnRemarks,
   listRequests,
   lookupMyIssuedItemBySerial,
+  markRequestNotIssued,
   recordBatchUsage,
   recordUsage,
   rejectRequest,
@@ -112,6 +113,10 @@ export default function RequestsPage() {
   const [approveComment, setApproveComment] = useState("");
 
   const [issuing, setIssuing] = useState<StockRequest | null>(null);
+  const [notIssuing, setNotIssuing] = useState<StockRequest | null>(null);
+  const [notIssuedReason, setNotIssuedReason] = useState("");
+  const [notIssuedLoading, setNotIssuedLoading] = useState(false);
+  const [notIssuedError, setNotIssuedError] = useState<string | null>(null);
   const [issueLines, setIssueLines] = useState<Record<number, IssueLineState>>({});
   const [issueInstances, setIssueInstances] = useState<Record<number, ItemInstance[]>>({});
   const [issueLoading, setIssueLoading] = useState(false);
@@ -169,6 +174,7 @@ export default function RequestsPage() {
 
   const isApprover = useMemo(() => ["admin", "manager", "approver"].includes(role), [role]);
   const isStoreManager = role === "store_manager" || role === "admin" || role === "manager";
+  const canViewRequestValues = ["admin", "manager", "store_manager", "approver", "finance"].includes(role);
 
   async function fetchAllItemsForSelectors(): Promise<Item[]> {
     const pageSize = 500;
@@ -989,6 +995,35 @@ export default function RequestsPage() {
     }
   }
 
+  function openNotIssued(req: StockRequest) {
+    setNotIssuing(req);
+    setNotIssuedReason("");
+    setNotIssuedError(null);
+  }
+
+  async function handleNotIssued() {
+    if (!notIssuing) return;
+    const reason = notIssuedReason.trim();
+    if (!reason) {
+      setNotIssuedError("Remark is required.");
+      return;
+    }
+    setNotIssuedLoading(true);
+    setNotIssuedError(null);
+    try {
+      await markRequestNotIssued(notIssuing.id, reason);
+      message.success("Request marked not issued");
+      setNotIssuing(null);
+      setNotIssuedReason("");
+      await refresh();
+      triggerSuccessPulse("requests");
+    } catch (err: any) {
+      setNotIssuedError(getApiErrorMessage(err, "Failed to mark request not issued"));
+    } finally {
+      setNotIssuedLoading(false);
+    }
+  }
+
   const itemNameById = useMemo(() => new Map(items.map((i) => [i.id, i.name])), [items]);
   const itemSkuById = useMemo(() => new Map(items.map((i) => [i.id, i.sku])), [items]);
   const itemImageById = useMemo(() => new Map(items.map((i) => [i.id, i.image_url ?? null])), [items]);
@@ -1015,6 +1050,7 @@ export default function RequestsPage() {
   const statusColor = (status?: string | null) => {
     if (status === "APPROVED") return "green";
     if (status === "REJECTED") return "red";
+    if (status === "NOT_ISSUED") return "orange";
     if (status === "ISSUED") return "blue";
     if (status === "CLOSED") return "default";
     return "gold";
@@ -1038,6 +1074,12 @@ export default function RequestsPage() {
         dataIndex: "created_at",
         key: "created_at",
         render: (value: string | null | undefined) => formatDateTime(value)
+      },
+      {
+        title: "Requested By",
+        key: "requested_by",
+        render: (_: unknown, request: StockRequest) =>
+          request.requested_by_name || request.requested_by_email || `User #${request.requested_by_user_id}`
       },
       {
         title: "Status",
@@ -1074,16 +1116,24 @@ export default function RequestsPage() {
             .map((l) => `${itemNameById.get(l.part_id) ?? l.part_id} x${l.quantity}`)
             .join(", ")
       },
-      {
-        title: "Total",
-        dataIndex: "total_value",
-        key: "total_value",
-        render: (value: number | null) => (value == null ? "" : formatKes(value))
-      },
+      canViewRequestValues
+        ? {
+            title: "Total",
+            dataIndex: "total_value",
+            key: "total_value",
+            render: (value: number | null) => (value == null ? "" : formatKes(value))
+          }
+        : null,
       {
         title: "Approver Note",
         dataIndex: "approved_comment",
         key: "approved_comment",
+        render: (value: string | null | undefined) => (value && value.trim() ? value : "-")
+      },
+      {
+        title: "Not Issued Remark",
+        dataIndex: "not_issued_reason",
+        key: "not_issued_reason",
         render: (value: string | null | undefined) => (value && value.trim() ? value : "-")
       },
       {
@@ -1100,6 +1150,9 @@ export default function RequestsPage() {
               : null,
             isStoreManager && request.status === "APPROVED"
               ? { key: "issue", label: "Issue", onClick: () => openIssue(request) }
+              : null,
+            isStoreManager && request.status === "APPROVED"
+              ? { key: "not_issued", label: "Not issued", onClick: () => openNotIssued(request) }
               : null,
             isTechnicianRole && request.status === "ISSUED"
               ? { key: "return", label: "Return", onClick: () => openReturn(request) }
@@ -1118,8 +1171,8 @@ export default function RequestsPage() {
           );
         }
       }
-    ],
-    [customerNameById, isApprovalQueue, isApprover, isStoreManager, isTechnicianRole, itemNameById, jobTitleById]
+    ].filter(Boolean) as any,
+    [canViewRequestValues, customerNameById, isApprovalQueue, isApprover, isStoreManager, isTechnicianRole, itemNameById, jobTitleById]
   );
 
   const jobOptions = selectedCustomerId !== "" ? jobsByCustomer.get(Number(selectedCustomerId)) ?? [] : jobs;
@@ -1738,6 +1791,36 @@ export default function RequestsPage() {
                 </Card>
               );
             })}
+          </Space>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="Mark request not issued"
+        open={!!notIssuing}
+        onCancel={() => {
+          setNotIssuing(null);
+          setNotIssuedReason("");
+          setNotIssuedError(null);
+        }}
+        onOk={handleNotIssued}
+        okText="Mark not issued"
+        okButtonProps={{ danger: true }}
+        confirmLoading={notIssuedLoading}
+      >
+        {notIssuing ? (
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Typography.Text type="secondary">
+              {formatRequestRef(notIssuing.id)} requested by{" "}
+              {notIssuing.requested_by_name || notIssuing.requested_by_email || `User #${notIssuing.requested_by_user_id}`}
+            </Typography.Text>
+            <Input.TextArea
+              value={notIssuedReason}
+              onChange={(e) => setNotIssuedReason(e.target.value)}
+              rows={4}
+              placeholder="Remark explaining why the request was not issued"
+            />
+            {notIssuedError ? <Typography.Text type="danger">{notIssuedError}</Typography.Text> : null}
           </Space>
         ) : null}
       </Modal>

@@ -43,6 +43,7 @@ TECHNICIAN_ROLE = "technician"
 class ImportSummary(BaseModel):
     created: int
     updated: int = 0
+    deactivated: int = 0
     skipped: int
     failed: int
     errors: list[str] = Field(default_factory=list)
@@ -64,6 +65,16 @@ class TechnicianZoneRow:
     station_name: str
     client_code: str | None
     zone_order: int
+
+
+@dataclass
+class InventoryImportRow:
+    name: str
+    quantity_on_hand: int | None
+    min_quantity: int | None
+    unit_of_measure: str | None
+    category_name: str | None
+    apply_quantity: bool
 
 
 def _normalize_text(value: Any) -> str:
@@ -184,26 +195,85 @@ def _apply_store_a_quantity(db: Session, part: Part, quantity: int, current_user
         )
 
 
-def _parse_store_sheet(workbook) -> list[tuple[str, int | None]]:
-    records: list[tuple[str, int | None]] = []
-    seen: set[tuple[str, int | None]] = set()
+def _find_store_header(row: tuple[Any, ...]) -> dict[str, int] | None:
+    normalized = [_normalize_key(_normalize_text(value)) for value in row]
+    aliases = {
+        "name": {"itemdescription", "description", "item", "itemname", "name"},
+        "unit": {"unit", "uom", "unitofmeasure"},
+        "quantity": {"itemsathand", "actualstocks", "stock", "stocks", "quantity", "qty", "quantityonhand", "total", "totals"},
+        "minimum": {"minimumstock", "minimum", "minimumqty", "minimumquantity", "min", "minqty", "minquantity"},
+    }
+    indexes: dict[str, int] = {}
+    for key, names in aliases.items():
+        for idx, value in enumerate(normalized):
+            if value in names:
+                indexes[key] = idx
+                break
+    if "name" not in indexes:
+        return None
+    return indexes
+
+
+def _is_inventory_category_row(name: str, unit: str, quantity: Any, minimum: Any) -> bool:
+    if not name:
+        return False
+    if unit or quantity is not None or minimum is not None:
+        return False
+    cleaned = name.strip()
+    return cleaned.endswith(":") or (cleaned.upper() == cleaned and any(ch.isalpha() for ch in cleaned))
+
+
+def _parse_store_sheet(workbook) -> list[InventoryImportRow]:
+    records: list[InventoryImportRow] = []
+    seen: set[tuple[str, str | None]] = set()
 
     for ws in workbook.worksheets:
+        header_row_index = 0
+        header_indexes: dict[str, int] | None = None
         for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
-            first = _normalize_text(row[0] if row else None)
-            if not first:
+            header_indexes = _find_store_header(row)
+            if header_indexes:
+                header_row_index = idx
+                break
+        if not header_indexes:
+            continue
+
+        name_idx = header_indexes["name"]
+        unit_idx = header_indexes.get("unit")
+        qty_idx = header_indexes.get("quantity")
+        min_idx = header_indexes.get("minimum")
+        current_category: str | None = None
+
+        for row in ws.iter_rows(min_row=header_row_index + 1, values_only=True):
+            name = _normalize_text(row[name_idx] if len(row) > name_idx else None)
+            if not name:
                 continue
-            upper = first.upper()
-            if idx <= 2 and ("ITEM" in upper or "ITEMS NOT AVAILABLE" in upper):
+
+            unit = _normalize_text(row[unit_idx] if unit_idx is not None and len(row) > unit_idx else None)
+            raw_qty = row[qty_idx] if qty_idx is not None and len(row) > qty_idx else None
+            raw_min = row[min_idx] if min_idx is not None and len(row) > min_idx else None
+
+            if _is_inventory_category_row(name, unit, raw_qty, raw_min):
+                current_category = name.strip()
                 continue
-            if upper in {"ITEM", "ACTUAL STOCKS"} or "ITEMS NOT AVAILABLE" in upper:
-                continue
-            qty = _coerce_int(row[1] if len(row) > 1 else None)
-            key = (_normalize_key(first), qty)
+
+            quantity = _coerce_int(raw_qty)
+            min_quantity = _coerce_int(raw_min)
+            apply_quantity = qty_idx is not None
+            key = (_normalize_key(name), _normalize_key(current_category or "") or None)
             if key in seen:
                 continue
             seen.add(key)
-            records.append((first, qty))
+            records.append(
+                InventoryImportRow(
+                    name=name,
+                    quantity_on_hand=max(quantity or 0, 0) if apply_quantity else None,
+                    min_quantity=max(min_quantity, 0) if min_quantity is not None else None,
+                    unit_of_measure=unit or None,
+                    category_name=current_category,
+                    apply_quantity=apply_quantity,
+                )
+            )
     return records
 
 
@@ -312,24 +382,40 @@ def _import_pricing_inventory(workbook, db: Session, dry_run: bool) -> ImportSum
     )
 
 
-def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: bool) -> ImportSummary:
+def _import_store_inventory(
+    workbook,
+    db: Session,
+    current_user: User,
+    dry_run: bool,
+    *,
+    replace_existing: bool = False,
+    source_name: str | None = None,
+) -> ImportSummary:
     rows = _parse_store_sheet(workbook)
     existing_parts = db.scalars(select(Part)).all()
     by_name = {_normalize_key(part.name): part for part in existing_parts}
 
     created = 0
     updated = 0
+    deactivated = 0
     skipped = 0
     errors: list[str] = []
+    imported_keys: set[str] = set()
 
-    for name, qty in rows:
-        normalized_name = _normalize_key(name)
+    for record in rows:
+        normalized_name = _normalize_key(record.name)
         if not normalized_name:
             skipped += 1
             continue
-        is_sheet1_style = qty is not None
-        desired_qty = max(qty or 0, 0)
-        desired_min = desired_qty + 1 if is_sheet1_style else 1
+        imported_keys.add(normalized_name)
+        desired_qty = max(record.quantity_on_hand or 0, 0)
+        desired_min = (
+            max(record.min_quantity, 0)
+            if record.min_quantity is not None
+            else desired_qty + 1
+            if record.apply_quantity
+            else 1
+        )
         existing = by_name.get(normalized_name)
 
         if dry_run:
@@ -339,19 +425,25 @@ def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: 
                 updated += 1
             continue
 
-        note = f"Imported from Store A.xlsx for {STORE_A_LOCATION}"
+        note = f"Imported from {source_name or 'inventory workbook'} for {STORE_A_LOCATION}"
         try:
+            category_id = None
+            if record.category_name:
+                category = _get_or_create_category(db, record.category_name)
+                category_id = category.id
+
             if existing is None:
                 part = Part(
                     sku=generate_system_sku(db),
-                    name=name.strip(),
+                    name=record.name.strip(),
                     description=None,
                     image_url=None,
                     unit_price=None,
                     quantity_on_hand=0,
                     min_quantity=desired_min,
                     tracking_type="BATCH",
-                    unit_of_measure=None,
+                    unit_of_measure=record.unit_of_measure,
+                    category_id=category_id,
                     location_id=None,
                     supplier_id=None,
                 )
@@ -359,23 +451,51 @@ def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: 
                 db.flush()
                 by_name[normalized_name] = part
                 created += 1
-                if is_sheet1_style:
+                if record.apply_quantity:
                     _apply_store_a_quantity(db, part, desired_qty, current_user, note)
                 else:
                     part.quantity_on_hand = 0
             else:
                 part = existing
-                part.name = name.strip()
-                if is_sheet1_style:
+                part.name = record.name.strip()
+                if record.unit_of_measure is not None:
+                    part.unit_of_measure = record.unit_of_measure
+                if category_id is not None:
+                    part.category_id = category_id
+                if record.apply_quantity:
                     _apply_store_a_quantity(db, part, desired_qty, current_user, note)
                 updated += 1
 
-            part.min_quantity = max(int(part.min_quantity or 0), desired_min)
+            if record.min_quantity is not None:
+                part.min_quantity = desired_min
+            else:
+                part.min_quantity = max(int(part.min_quantity or 0), desired_min)
             part.is_active = True
         except Exception as exc:  # pragma: no cover
             db.rollback()
-            errors.append(f"{name}: {exc}")
+            errors.append(f"{record.name}: {exc}")
             continue
+
+    if replace_existing and imported_keys:
+        missing_parts = [
+            part
+            for part in existing_parts
+            if part.is_active and _normalize_key(part.name) not in imported_keys
+        ]
+        if dry_run:
+            deactivated = len(missing_parts)
+        else:
+            for part in missing_parts:
+                part.is_active = False
+                deactivated += 1
+                log_audit(
+                    db,
+                    current_user,
+                    action="deactivate",
+                    entity_type="part",
+                    entity_id=part.id,
+                    detail={"reason": "inventory_replacement_import", "source": source_name},
+                )
 
     if not dry_run:
         db.commit()
@@ -383,6 +503,7 @@ def _import_store_inventory(workbook, db: Session, current_user: User, dry_run: 
     return ImportSummary(
         created=created,
         updated=updated,
+        deactivated=deactivated,
         skipped=skipped,
         failed=len(errors),
         errors=errors[:50],
@@ -552,6 +673,7 @@ def _load_workbook_from_upload(file: UploadFile):
 def import_inventory_xlsx(
     file: UploadFile = File(...),
     dry_run: bool = False,
+    replace_existing: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ImportSummary:
@@ -559,7 +681,14 @@ def import_inventory_xlsx(
     if _looks_like_pricing_sheet(workbook):
         summary = _import_pricing_inventory(workbook, db, dry_run)
     else:
-        summary = _import_store_inventory(workbook, db, current_user, dry_run)
+        summary = _import_store_inventory(
+            workbook,
+            db,
+            current_user,
+            dry_run,
+            replace_existing=replace_existing,
+            source_name=file.filename,
+        )
     log_audit(
         db,
         current_user,
@@ -570,8 +699,10 @@ def import_inventory_xlsx(
             "dry_run": dry_run,
             "created": summary.created,
             "updated": summary.updated,
+            "deactivated": summary.deactivated,
             "skipped": summary.skipped,
             "failed": summary.failed,
+            "replace_existing": replace_existing,
         },
     )
     db.commit()

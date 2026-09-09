@@ -43,6 +43,23 @@ def build_engine_kwargs(database_url: str) -> dict[str, object]:
     return kwargs
 
 
+def _ensure_enum_value(conn, *, dialect: str, type_name: str, table_name: str, column_name: str, value: str, values: list[str]) -> None:
+    if dialect == "postgresql":
+        enum_exists = bool(
+            conn.execute(
+                text("SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = :type_name)"),
+                {"type_name": type_name},
+            ).scalar()
+        )
+        if not enum_exists:
+            return
+        enum_value = value.replace("'", "''")
+        conn.execute(text(f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{enum_value}'"))
+    elif dialect == "mysql":
+        enum_values = ", ".join(f"'{item}'" for item in values)
+        conn.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} ENUM({enum_values}) NOT NULL"))
+
+
 database_url = normalize_database_url(settings.database_url)
 engine_kwargs = build_engine_kwargs(database_url)
 
@@ -374,12 +391,27 @@ def ensure_schema(engine: Engine) -> None:
     if inspector.has_table("stock_requests"):
         request_columns = {c["name"] for c in inspector.get_columns("stock_requests")}
         with engine.begin() as conn:
+            _ensure_enum_value(
+                conn,
+                dialect=dialect,
+                type_name="stock_request_status",
+                table_name="stock_requests",
+                column_name="status",
+                value="NOT_ISSUED",
+                values=["PENDING", "APPROVED", "REJECTED", "NOT_ISSUED", "ISSUED", "CLOSED"],
+            )
             if "approved_comment" not in request_columns:
                 conn.execute(text("ALTER TABLE stock_requests ADD COLUMN approved_comment TEXT NULL"))
             if "closure_type" not in request_columns:
                 conn.execute(text("ALTER TABLE stock_requests ADD COLUMN closure_type VARCHAR(20) NULL"))
             if "closed_at" not in request_columns:
                 conn.execute(text(f"ALTER TABLE stock_requests ADD COLUMN closed_at {datetime_type} NULL"))
+            if "not_issued_reason" not in request_columns:
+                conn.execute(text("ALTER TABLE stock_requests ADD COLUMN not_issued_reason TEXT NULL"))
+            if "not_issued_by_user_id" not in request_columns:
+                conn.execute(text("ALTER TABLE stock_requests ADD COLUMN not_issued_by_user_id INTEGER NULL"))
+            if "not_issued_at" not in request_columns:
+                conn.execute(text(f"ALTER TABLE stock_requests ADD COLUMN not_issued_at {datetime_type} NULL"))
 
     # Patch forward stock_transactions columns for request workflows.
     if not inspector.has_table("stock_transactions"):

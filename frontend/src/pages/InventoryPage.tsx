@@ -181,6 +181,7 @@ export default function InventoryPage() {
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
   const role = user?.role ?? "technician";
+  const canViewInventoryPrices = ["admin", "manager", "store_manager", "approver", "finance"].includes(role);
   const canApproveDeletion = isAdmin || role === "manager" || role === "approver";
   const canUploadAttachments = isAdmin || role === "manager" || role === "store_manager" || role === "lead_technician" || role === "technician";
   const canDeleteAttachments = isAdmin || role === "manager" || role === "store_manager";
@@ -229,8 +230,9 @@ export default function InventoryPage() {
   const [reorderPageSize, setReorderPageSize] = useState(10);
   const [importing, setImporting] = useState(false);
   const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [importSummary, setImportSummary] = useState<{ created: number; failed: number } | null>(null);
+  const [importSummary, setImportSummary] = useState<{ created: number; updated: number; deactivated: number; failed: number } | null>(null);
   const [importSkipped, setImportSkipped] = useState<number | null>(null);
+  const [replaceInventoryOnImport, setReplaceInventoryOnImport] = useState(true);
   const [normalizingSkus, setNormalizingSkus] = useState(false);
 
   function triggerInventoryPulse() {
@@ -318,8 +320,8 @@ export default function InventoryPage() {
         location_id: filterLocationId === "" ? undefined : Number(filterLocationId),
         supplier_id: filterSupplierId === "" ? undefined : Number(filterSupplierId),
         tracking_type: filterTrackingType === "" ? undefined : filterTrackingType,
-        min_unit_price: minPrice == null ? undefined : minPrice,
-        max_unit_price: maxPrice == null ? undefined : maxPrice,
+        min_unit_price: canViewInventoryPrices && minPrice != null ? minPrice : undefined,
+        max_unit_price: canViewInventoryPrices && maxPrice != null ? maxPrice : undefined,
         min_quantity_on_hand: minQoh == null ? undefined : minQoh,
         max_quantity_on_hand: maxQoh == null ? undefined : maxQoh,
       });
@@ -331,7 +333,7 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [direction, loadReorder, lowOnly, inStockOnly, outOfStockOnly, filterCategoryId, filterLocationId, filterSupplierId, filterTrackingType, filterMinPrice, filterMaxPrice, filterMinQoh, filterMaxQoh, page, pageSize, q, sort]);
+  }, [canViewInventoryPrices, direction, loadReorder, lowOnly, inStockOnly, outOfStockOnly, filterCategoryId, filterLocationId, filterSupplierId, filterTrackingType, filterMinPrice, filterMaxPrice, filterMinQoh, filterMaxQoh, page, pageSize, q, sort]);
 
   useEffect(() => {
     refresh();
@@ -585,7 +587,9 @@ export default function InventoryPage() {
         )
       },
       { title: label("Min", "min_quantity"), dataIndex: "min_quantity", key: "min_quantity" },
-      { title: "Unit price", dataIndex: "unit_price", key: "unit_price", render: (value: number | null) => formatMoney(value) },
+      canViewInventoryPrices
+        ? { title: "Unit price", dataIndex: "unit_price", key: "unit_price", render: (value: number | null) => formatMoney(value) }
+        : null,
       {
         title: "Actions",
         key: "actions",
@@ -691,8 +695,8 @@ export default function InventoryPage() {
           );
         }
       }
-    ];
-  }, [canApproveDeletion, categoryNameById, direction, lowOnly, refresh, saving, sort, suppliersById]);
+    ].filter(Boolean) as any;
+  }, [canApproveDeletion, canViewInventoryPrices, categoryNameById, direction, lowOnly, refresh, saving, sort, suppliersById]);
 
   const mobileItemCards = useMemo(
     () =>
@@ -723,10 +727,12 @@ export default function InventoryPage() {
               <div className="mobile-metric-label">Tracking</div>
               <div className="mobile-metric-value">{item.tracking_type ?? "BATCH"}</div>
             </div>
-            <div>
-              <div className="mobile-metric-label">Unit Price</div>
-              <div className="mobile-metric-value">{formatMoney(item.unit_price)}</div>
-            </div>
+            {canViewInventoryPrices ? (
+              <div>
+                <div className="mobile-metric-label">Unit Price</div>
+                <div className="mobile-metric-value">{formatMoney(item.unit_price)}</div>
+              </div>
+            ) : null}
           </div>
           <Space wrap style={{ marginTop: 10 }}>
             <Button size="middle" onClick={() => startEdit(item)}>
@@ -744,7 +750,7 @@ export default function InventoryPage() {
           </Space>
         </Card>
       )),
-    [items]
+    [canViewInventoryPrices, items]
   );
 
   const reorderColumns = useMemo(
@@ -806,21 +812,25 @@ export default function InventoryPage() {
   const [instancesError, setInstancesError] = useState<string | null>(null);
 
   const buildItemsCsv = useCallback(
-    (rows: Item[]) =>
-      buildCsv(
-        ["SKU", "Name", "Supplier", "Qty On Hand", "Min Qty", "Unit Price", "Low Stock", "Description"],
-        rows.map((it) => [
+    (rows: Item[]) => {
+      const headers = canViewInventoryPrices
+        ? ["SKU", "Name", "Supplier", "Qty On Hand", "Min Qty", "Unit Price", "Low Stock", "Description"]
+        : ["SKU", "Name", "Supplier", "Qty On Hand", "Min Qty", "Low Stock", "Description"];
+      const data = rows.map((it) => {
+        const common = [
           it.sku,
           it.name,
           it.supplier_id ? suppliersById.get(it.supplier_id)?.name ?? it.supplier_id : "",
           it.quantity_on_hand,
           it.min_quantity,
-          it.unit_price ?? "",
-          isLowStock(it) ? "Yes" : "No",
-          it.description ?? ""
-        ])
-      ),
-    [suppliersById]
+        ];
+        return canViewInventoryPrices
+          ? [...common, it.unit_price ?? "", isLowStock(it) ? "Yes" : "No", it.description ?? ""]
+          : [...common, isLowStock(it) ? "Yes" : "No", it.description ?? ""];
+      });
+      return buildCsv(headers, data);
+    },
+    [canViewInventoryPrices, suppliersById]
   );
 
   const [stockItem, setStockItem] = useState<Item | null>(null);
@@ -1457,7 +1467,7 @@ export default function InventoryPage() {
       }
 
       setImportErrors(errors);
-      setImportSummary({ created, failed: errors.length });
+      setImportSummary({ created, updated: 0, deactivated: 0, failed: errors.length });
       setImportSkipped(null);
       if (created > 0) {
         message.success(`Imported ${created} item(s)`);
@@ -1474,12 +1484,17 @@ export default function InventoryPage() {
     setImportSummary(null);
     setImportSkipped(null);
     try {
-      const summary = await importInventoryXlsx(file);
-      setImportSummary({ created: summary.created, failed: summary.failed });
+      const summary = await importInventoryXlsx(file, false, replaceInventoryOnImport);
+      setImportSummary({
+        created: summary.created,
+        updated: summary.updated,
+        deactivated: summary.deactivated,
+        failed: summary.failed,
+      });
       setImportSkipped(summary.skipped);
       setImportErrors(summary.errors || []);
-      if (summary.created > 0) {
-        message.success(`Imported ${summary.created} item(s) from Excel`);
+      if (summary.created > 0 || summary.updated > 0) {
+        message.success(`Imported ${summary.created} new and updated ${summary.updated} item(s) from Excel`);
         await refresh();
       }
     } catch (err: any) {
@@ -1836,14 +1851,16 @@ export default function InventoryPage() {
                   ))}
                 </Select>
               </Form.Item>
-              <Form.Item label="Unit price">
-                <Input
-                  value={unitPrice}
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="e.g. 12.50"
-                />
-              </Form.Item>
+              {canViewInventoryPrices ? (
+                <Form.Item label="Unit price">
+                  <Input
+                    value={unitPrice}
+                    onChange={(e) => setUnitPrice(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="e.g. 12.50"
+                  />
+                </Form.Item>
+              ) : null}
               <Form.Item label="Qty on hand">
                 <Input value={quantityOnHand} onChange={(e) => setQuantityOnHand(e.target.value)} inputMode="numeric" />
               </Form.Item>
@@ -2071,24 +2088,28 @@ export default function InventoryPage() {
                   <Select.Option value="INDIVIDUAL">INDIVIDUAL</Select.Option>
                 </Select>
               </Form.Item>
-              <Form.Item label="Min Price">
-                <Input
-                  type="number"
-                  min={0}
-                  value={filterMinPrice}
-                  onChange={(e) => setFilterMinPrice(e.target.value)}
-                  style={{ width: 120 }}
-                />
-              </Form.Item>
-              <Form.Item label="Max Price">
-                <Input
-                  type="number"
-                  min={0}
-                  value={filterMaxPrice}
-                  onChange={(e) => setFilterMaxPrice(e.target.value)}
-                  style={{ width: 120 }}
-                />
-              </Form.Item>
+              {canViewInventoryPrices ? (
+                <>
+                  <Form.Item label="Min Price">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={filterMinPrice}
+                      onChange={(e) => setFilterMinPrice(e.target.value)}
+                      style={{ width: 120 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="Max Price">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={filterMaxPrice}
+                      onChange={(e) => setFilterMaxPrice(e.target.value)}
+                      style={{ width: 120 }}
+                    />
+                  </Form.Item>
+                </>
+              ) : null}
               <Form.Item label="Min QOH">
                 <Input
                   type="number"
@@ -2240,7 +2261,7 @@ export default function InventoryPage() {
 
         <Card title="Import items" style={{ gridColumn: "1 / -1" }}>
           <Typography.Text type="secondary">
-            Import items from CSV or the existing Excel inventory file. Use the template for correct CSV headers.
+            Import items from CSV or upload the current Excel inventory workbook.
           </Typography.Text>
           <Space wrap style={{ marginTop: 8 }}>
             <Button onClick={downloadImportTemplate} disabled={importing}>
@@ -2258,6 +2279,13 @@ export default function InventoryPage() {
                 {importing ? "Importing..." : "Import CSV"}
               </Button>
             </Upload>
+            <Checkbox
+              checked={replaceInventoryOnImport}
+              onChange={(e) => setReplaceInventoryOnImport(e.target.checked)}
+              disabled={importing}
+            >
+              Replace existing inventory on Excel import
+            </Checkbox>
             <Upload
               accept=".xlsx"
               showUploadList={false}
@@ -2290,7 +2318,7 @@ export default function InventoryPage() {
           </Space>
           {importSummary ? (
             <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-              Imported {importSummary.created} item(s), {importSummary.failed} failed.
+              Imported {importSummary.created} new, updated {importSummary.updated}, deactivated {importSummary.deactivated}, {importSummary.failed} failed.
               {importSkipped != null ? ` Skipped ${importSkipped}.` : ""}
             </Typography.Text>
           ) : null}
@@ -2419,14 +2447,16 @@ export default function InventoryPage() {
               <InputNumber min={0} value={quickMinQty} onChange={(value) => setQuickMinQty(Number(value) || 0)} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
-          <Form.Item label="Unit Price (optional)">
-            <InputNumber
-              min={0}
-              value={quickUnitPrice as number | null}
-              onChange={(value) => setQuickUnitPrice(value == null ? null : Number(value))}
-              style={{ width: "100%" }}
-            />
-          </Form.Item>
+          {canViewInventoryPrices ? (
+            <Form.Item label="Unit Price (optional)">
+              <InputNumber
+                min={0}
+                value={quickUnitPrice as number | null}
+                onChange={(value) => setQuickUnitPrice(value == null ? null : Number(value))}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+          ) : null}
           {quickError ? <Typography.Text type="danger">{quickError}</Typography.Text> : null}
           <Space style={{ marginTop: 12 }}>
             <Button onClick={() => setQuickCreateOpen(false)}>Cancel</Button>

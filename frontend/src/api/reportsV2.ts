@@ -65,7 +65,7 @@ export interface StockUsage {
   sku: string;
   category: string;
   total_used: number;
-  total_value: number;
+  total_value: number | null;
   usage_count: number;
 }
 
@@ -84,21 +84,21 @@ export interface StockUsageByTechnician {
   technician_name: string;
   total_transactions: number;
   total_parts_used: number;
-  total_value: number;
+  total_value: number | null;
   parts_list: {
     part_id: number;
     part_name: string;
     sku: string;
     quantity: number;
-    value: number;
+    value: number | null;
   }[];
 }
 
 export interface IssuanceKpis {
   total_issue_transactions: number;
   total_issue_quantity: number;
-  total_issue_value: number;
-  avg_issue_value: number;
+  total_issue_value: number | null;
+  avg_issue_value: number | null;
   pending_returns: number;
   return_approval_rate_percent: number;
 }
@@ -166,13 +166,13 @@ export interface TechnicianMyUsage {
   technician_name: string;
   total_transactions: number;
   total_parts_used: number;
-  total_value: number;
+  total_value: number | null;
   parts_list: {
     part_id: number;
     part_name: string;
     sku: string;
     quantity: number;
-    value: number;
+    value: number | null;
   }[];
 }
 

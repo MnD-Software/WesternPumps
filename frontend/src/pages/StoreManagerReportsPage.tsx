@@ -105,7 +105,7 @@ export default function StoreManagerReportsPage() {
     { title: "Part Name", dataIndex: "part_name", key: "part_name" },
     { title: "Category", dataIndex: "category", key: "category" },
     { title: "Total Used", dataIndex: "total_used", key: "total_used", render: (v: number) => v.toLocaleString() },
-    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => formatKes(v) },
+    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number | null) => formatKes(v ?? 0) },
     { title: "Usage Count", dataIndex: "usage_count", key: "usage_count" },
   ];
 
@@ -122,7 +122,7 @@ export default function StoreManagerReportsPage() {
     { title: "Technician", dataIndex: "technician_name", key: "technician_name" },
     { title: "Transactions", dataIndex: "total_transactions", key: "total_transactions" },
     { title: "Parts Used", dataIndex: "total_parts_used", key: "total_parts_used" },
-    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number) => formatKes(v) },
+    { title: "Total Value", dataIndex: "total_value", key: "total_value", render: (v: number | null) => formatKes(v ?? 0) },
   ];
 
   return (
@@ -154,7 +154,7 @@ export default function StoreManagerReportsPage() {
           <Card>
             <Statistic
               title="Total Usage Value"
-              value={stockUsage.reduce((sum, i) => sum + i.total_value, 0)}
+              value={stockUsage.reduce((sum, i) => sum + (i.total_value ?? 0), 0)}
               formatter={(value) => formatKes(Number(value || 0))}
               loading={loading}
             />

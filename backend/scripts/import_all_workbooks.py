@@ -18,8 +18,8 @@ from app.security import get_password_hash
 
 
 DEFAULT_PRICING_PATH = Path(r"C:\Users\Web Design\Downloads\TEMK CONTRACT SPARES  PRICING.xlsx")
-DEFAULT_STORE_PATH = Path(r"C:\Users\Web Design\Downloads\Store A.xlsx")
-DEFAULT_TECH_PATH = Path(r"C:\Users\Web Design\Downloads\Technicians Details and zones.xlsx")
+DEFAULT_STORE_PATH = Path(r"C:\Users\Web Design\Downloads\INVENTORY.xlsx")
+DEFAULT_TECH_PATH = Path(r"C:\Users\Web Design\Downloads\Technicians Details and zones (1).xlsx")
 
 
 def _load_wb(path: Path):
@@ -55,10 +55,11 @@ def _ensure_admin_user(db) -> User:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import TEMK pricing, Store A stock, and technician zones workbooks.")
+    parser = argparse.ArgumentParser(description="Import TEMK pricing, inventory stock, and technician zones workbooks.")
     parser.add_argument("--pricing", default=str(DEFAULT_PRICING_PATH))
     parser.add_argument("--store", default=str(DEFAULT_STORE_PATH))
     parser.add_argument("--technicians", default=str(DEFAULT_TECH_PATH))
+    parser.add_argument("--replace-existing-inventory", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -72,7 +73,14 @@ def main() -> None:
         pricing_summary = _import_pricing_inventory(pricing_wb, db, args.dry_run)
 
         store_wb = _load_wb(Path(args.store))
-        store_summary = _import_store_inventory(store_wb, db, admin, args.dry_run)
+        store_summary = _import_store_inventory(
+            store_wb,
+            db,
+            admin,
+            args.dry_run,
+            replace_existing=args.replace_existing_inventory,
+            source_name=Path(args.store).name,
+        )
 
         tech_wb = _load_wb(Path(args.technicians))
         tech_summary = _import_technician_workbook(tech_wb, db, admin, args.dry_run)
@@ -84,7 +92,7 @@ def main() -> None:
         )
         print(
             f"store created={store_summary.created} updated={store_summary.updated} "
-            f"failed={store_summary.failed} skipped={store_summary.skipped}"
+            f"deactivated={store_summary.deactivated} failed={store_summary.failed} skipped={store_summary.skipped}"
         )
         print(
             f"technicians created_users={tech_summary.created_users} updated_users={tech_summary.updated_users} "
@@ -101,4 +109,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

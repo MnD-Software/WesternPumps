@@ -50,8 +50,10 @@ def validate_job_payload(
     if not customer:
         raise InvalidCustomerError("Invalid customer_id")
     
-    if payload.site_latitude is None or payload.site_longitude is None:
-        raise ValueError("Job site latitude and longitude are required")
+    if not (payload.site_location_label or "").strip():
+        raise ValueError("Job site name is required")
+    if (payload.site_latitude is None) ^ (payload.site_longitude is None):
+        raise ValueError("Provide both site_latitude and site_longitude together")
     
     assignee = None
     if payload.assigned_to_user_id:
@@ -120,6 +122,9 @@ def validate_update_payload(
     
     changes = payload.model_dump(exclude_unset=True)
     
+    if "site_location_label" in changes and not (changes.get("site_location_label") or "").strip():
+        raise ValueError("Job site name is required")
+
     # Validate coordinates are provided together
     if ("site_latitude" in changes) ^ ("site_longitude" in changes):
         raise ValueError("Provide both site_latitude and site_longitude together")

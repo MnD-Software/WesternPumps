@@ -67,6 +67,10 @@ class RejectPayload(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class NotIssuedPayload(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class ApprovePayload(BaseModel):
     comment: str | None = Field(default=None, max_length=1000)
 
@@ -87,6 +91,23 @@ def _service(db: Session) -> RequestService:
 
 def _handle_service_error(exc: ServiceError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+def _can_view_request_values(current_user: User) -> bool:
+    role = "technician" if current_user.role == "staff" else (current_user.role or "")
+    return role in {"admin", "manager", "store_manager", "approver", "finance"}
+
+
+def _request_read(request, current_user: User) -> StockRequestRead:
+    payload = StockRequestRead.model_validate(request, from_attributes=True).model_dump()
+    if request.requested_by:
+        payload["requested_by_name"] = request.requested_by.full_name
+        payload["requested_by_email"] = request.requested_by.email
+    if not _can_view_request_values(current_user):
+        payload["total_value"] = None
+        for line in payload.get("lines") or []:
+            line["unit_cost"] = None
+    return StockRequestRead.model_validate(payload)
 
 
 @router.post(
@@ -114,7 +135,7 @@ def create_request(payload: StockRequestCreate, db: Session = Depends(get_db), c
         actor_user_id=current_user.id,
         payload={"request_id": request.id, "status": str(request.status)},
     )
-    return StockRequestRead.model_validate(request, from_attributes=True)
+    return _request_read(request, current_user)
 
 
 @router.get("", response_model=list[StockRequestRead], dependencies=[Depends(get_current_user)])
@@ -129,21 +150,31 @@ def list_requests(
     safe_rows: list[StockRequestRead] = []
     for row in requests:
         try:
-            safe_rows.append(StockRequestRead.model_validate(row, from_attributes=True))
+            safe_rows.append(_request_read(row, current_user))
         except ValidationError:
+            total_value = (
+                float(row.total_value)
+                if row.total_value is not None and _can_view_request_values(current_user)
+                else None
+            )
             safe_rows.append(
                 StockRequestRead(
                     id=row.id,
                     requested_by_user_id=row.requested_by_user_id,
+                    requested_by_name=row.requested_by.full_name if row.requested_by else None,
+                    requested_by_email=row.requested_by.email if row.requested_by else None,
                     customer_id=row.customer_id,
                     job_id=row.job_id,
                     status=getattr(row.status, "value", str(row.status)),
-                    total_value=float(row.total_value) if row.total_value is not None else None,
+                    total_value=total_value,
                     required_approval_role=row.required_approval_role,
                     approved_by_user_id=row.approved_by_user_id,
                     approved_at=row.approved_at,
                     approved_comment=row.approved_comment,
                     rejected_reason=row.rejected_reason,
+                    not_issued_reason=getattr(row, "not_issued_reason", None),
+                    not_issued_by_user_id=getattr(row, "not_issued_by_user_id", None),
+                    not_issued_at=getattr(row, "not_issued_at", None),
                     closure_type=getattr(row, "closure_type", None),
                     closed_at=getattr(row, "closed_at", None),
                     lines=[],
@@ -176,7 +207,7 @@ def approve_request(
         actor_user_id=current_user.id,
         payload={"request_id": request.id, "status": str(request.status)},
     )
-    return StockRequestRead.model_validate(request, from_attributes=True)
+    return _request_read(request, current_user)
 
 
 @router.post("/{request_id}/reject", response_model=StockRequestRead, dependencies=[Depends(require_approver)])
@@ -197,7 +228,28 @@ def reject_request(
         actor_user_id=current_user.id,
         payload={"request_id": request.id, "status": str(request.status)},
     )
-    return StockRequestRead.model_validate(request, from_attributes=True)
+    return _request_read(request, current_user)
+
+
+@router.post("/{request_id}/not-issued", response_model=StockRequestRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
+def mark_request_not_issued(
+    request_id: int,
+    payload: NotIssuedPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StockRequestRead:
+    service = _service(db)
+    try:
+        request = service.mark_request_not_issued(request_id=request_id, current_user=current_user, reason=payload.reason)
+    except ServiceError as exc:
+        _handle_service_error(exc)
+    emit_domain_event(
+        db,
+        event_type="request.not_issued",
+        actor_user_id=current_user.id,
+        payload={"request_id": request.id, "status": str(request.status)},
+    )
+    return _request_read(request, current_user)
 
 
 @router.post("/{request_id}/issue", response_model=StockRequestRead, dependencies=[Depends(require_roles("store_manager", "manager"))])
@@ -222,7 +274,7 @@ def issue_request(
         actor_user_id=current_user.id,
         payload={"request_id": request.id, "status": str(request.status)},
     )
-    return StockRequestRead.model_validate(request, from_attributes=True)
+    return _request_read(request, current_user)
 
 
 @router.post("/usage", response_model=UsageRecordRead, dependencies=[Depends(require_roles("technician", "lead_technician"))])

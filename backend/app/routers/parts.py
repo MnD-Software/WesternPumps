@@ -288,6 +288,8 @@ def list_items(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tracking_type filter")
         stmt = stmt.where(Part.tracking_type == value)
         count_stmt = count_stmt.where(Part.tracking_type == value)
+    if not _can_view_stock_levels(current_user) and (min_unit_price is not None or max_unit_price is not None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Price filters are restricted")
     if min_unit_price is not None:
         stmt = stmt.where(func.coalesce(Part.unit_price, 0) >= min_unit_price)
         count_stmt = count_stmt.where(func.coalesce(Part.unit_price, 0) >= min_unit_price)
@@ -1080,7 +1082,7 @@ def verify_part(
             "category": part.category.name if part.category else None,
             "location": part.location.name if part.location else None,
             "quantity_on_hand": part.quantity_on_hand,
-            "unit_price": part.unit_price,
+            "unit_price": None,
         }
 
     return {
@@ -1093,5 +1095,5 @@ def verify_part(
         "category": part.category.name if part.category else None,
         "location": part.location.name if part.location else None,
         "quantity_on_hand": part.quantity_on_hand,
-        "unit_price": part.unit_price,
+        "unit_price": None,
     }

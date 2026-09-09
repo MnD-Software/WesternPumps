@@ -140,6 +140,8 @@ export type StockRequestLine = {
 export type StockRequest = {
   id: number;
   requested_by_user_id: number;
+  requested_by_name?: string | null;
+  requested_by_email?: string | null;
   customer_id?: number | null;
   job_id?: number | null;
   status: string;
@@ -149,6 +151,9 @@ export type StockRequest = {
   approved_at?: string | null;
   approved_comment?: string | null;
   rejected_reason?: string | null;
+  not_issued_reason?: string | null;
+  not_issued_by_user_id?: number | null;
+  not_issued_at?: string | null;
   closure_type?: "RETURNED" | "SOLD" | string | null;
   closed_at?: string | null;
   lines?: StockRequestLine[] | null;

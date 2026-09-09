@@ -203,17 +203,22 @@ export async function deleteItemAttachment(itemId: number, attachmentId: number)
 
 export type ImportSummary = {
   created: number;
+  updated: number;
+  deactivated: number;
   skipped: number;
   failed: number;
   errors: string[];
 };
 
-export async function importInventoryXlsx(file: File, dryRun = false): Promise<ImportSummary> {
+export async function importInventoryXlsx(file: File, dryRun = false, replaceExisting = false): Promise<ImportSummary> {
   const form = new FormData();
   form.append("file", file);
   return (
     await api.post<ImportSummary>("/api/import/inventory-xlsx", form, {
-      params: dryRun ? { dry_run: true } : undefined,
+      params: {
+        ...(dryRun ? { dry_run: true } : {}),
+        ...(replaceExisting ? { replace_existing: true } : {}),
+      },
       headers: { "Content-Type": "multipart/form-data" }
     })
   ).data;

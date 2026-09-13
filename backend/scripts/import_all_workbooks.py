@@ -18,8 +18,25 @@ from app.security import get_password_hash
 
 
 DEFAULT_PRICING_PATH = Path(r"C:\Users\Web Design\Downloads\TEMK CONTRACT SPARES  PRICING.xlsx")
-DEFAULT_STORE_PATH = Path(r"C:\Users\Web Design\Downloads\INVENTORY.xlsx")
-DEFAULT_TECH_PATH = Path(r"C:\Users\Web Design\Downloads\Technicians Details and zones (1).xlsx")
+DEFAULT_STORE_CANDIDATES = [
+    Path(r"C:\Users\Web Design\Downloads\INVENTORY.xlsx"),
+    Path(r"C:\Users\Web Design\Downloads\Store A.xlsx"),
+]
+DEFAULT_TECH_CANDIDATES = [
+    Path(r"C:\Users\Web Design\Downloads\Technicians Details and zones.xlsx"),
+    Path(r"C:\Users\Web Design\Downloads\Technicians Details and zones (1).xlsx"),
+]
+
+
+def _first_existing(candidates: list[Path]) -> Path:
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
+DEFAULT_STORE_PATH = _first_existing(DEFAULT_STORE_CANDIDATES)
+DEFAULT_TECH_PATH = _first_existing(DEFAULT_TECH_CANDIDATES)
 
 
 def _load_wb(path: Path):

@@ -1,7 +1,6 @@
 """
 Script to reset ALL user passwords to a specific value.
-Usage: python backend/scripts/reset_all_passwords.py [new_password]
-Default new_password is 'Marcosnoel@1' if not provided.
+Usage: python backend/scripts/reset_all_passwords.py <new_password>
 """
 import os
 import sys
@@ -33,8 +32,8 @@ def reset_all_passwords(new_password: str):
         # Check root of backend first (common location)
         sqlite_path = backend_dir / 'westernpumps.db'
         if not sqlite_path.exists():
-             # Check devdata as fallback
-        sqlite_path = backend_dir / 'devdata' / 'westernpumps.db'
+            # Check devdata as fallback
+            sqlite_path = backend_dir / 'devdata' / 'westernpumps.db'
         
         db_url = os.getenv('DATABASE_URL') or f"sqlite:///{sqlite_path.resolve().as_posix()}"
         print(f"No DATABASE_URL found in .env, using local SQLite: {sqlite_path}")

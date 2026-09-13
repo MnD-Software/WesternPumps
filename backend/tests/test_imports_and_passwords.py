@@ -9,6 +9,7 @@ from app.db import SessionLocal
 from app.main import app
 from app.models import PasswordResetToken, ProductAttachment, TechnicianZoneAssignment, User
 from app.routers.imports import _parse_store_sheet
+from scripts.import_all_workbooks import _first_existing
 from app.security import verify_password
 
 
@@ -84,6 +85,15 @@ def test_current_inventory_workbook_parser_reads_categories_stock_and_minimums()
     assert rows[1].category_name == "BREAKAWAYS"
     assert rows[1].quantity_on_hand == 3
     assert rows[1].min_quantity == 2
+
+
+def test_workbook_default_picker_prefers_existing_candidate(tmp_path) -> None:
+    missing = tmp_path / "missing.xlsx"
+    current_name = tmp_path / "Technicians Details and zones.xlsx"
+    current_name.write_bytes(b"placeholder")
+
+    assert _first_existing([missing, current_name]) == current_name
+    assert _first_existing([missing]) == missing
 
 
 def test_inventory_import_and_low_stock_listing() -> None:

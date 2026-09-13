@@ -31,21 +31,38 @@ import { listCategories } from "../api/categories";
 import { listLocations } from "../api/locations";
 import { listSuppliers } from "../api/suppliers";
 import { createStockTransaction, listStockTransactions } from "../api/stock";
-import { createRequest } from "../api/requests";
+import { createRequest, listRequests } from "../api/requests";
 import { listUsers } from "../api/users";
-import type { Category, Item, ItemInstance, Location, StockTransaction, StockTransactionType, Supplier, User } from "../api/types";
+import type { Category, Item, ItemInstance, Location, StockRequest, StockTransaction, StockTransactionType, Supplier, User } from "../api/types";
 import type { LocationStock } from "../api/types";
 import { getApiErrorMessage } from "../api/error";
 import { formatKes } from "../utils/currency";
 import { formatDateTime } from "../utils/datetime";
+import { formatRequestRef } from "../utils/requestRef";
 import { useAuth } from "../state/AuthContext";
 import SmartEmptyState from "../components/SmartEmptyState";
 
 type SortField = "name" | "sku" | "quantity_on_hand" | "min_quantity" | "created_at" | "updated_at";
 type SortDirection = "asc" | "desc";
+type ItemRequestSummary = {
+  requestId: number;
+  requestedBy: string;
+  quantity: number;
+  status: string;
+  notIssuedReason?: string | null;
+};
 
 function isLowStock(item: Item): boolean {
   return item.quantity_on_hand <= item.min_quantity;
+}
+
+function requestStatusColor(status: string): string {
+  if (status === "APPROVED") return "green";
+  if (status === "NOT_ISSUED") return "orange";
+  if (status === "REJECTED") return "red";
+  if (status === "ISSUED") return "blue";
+  if (status === "CLOSED") return "default";
+  return "gold";
 }
 
 function toInt(value: string): number | null {
@@ -182,10 +199,12 @@ export default function InventoryPage() {
   const isMobile = !screens.md;
   const role = user?.role ?? "technician";
   const canViewInventoryPrices = ["admin", "manager", "store_manager", "approver", "finance"].includes(role);
+  const canViewItemRequesters = ["admin", "manager", "store_manager", "approver"].includes(role);
   const canApproveDeletion = isAdmin || role === "manager" || role === "approver";
   const canUploadAttachments = isAdmin || role === "manager" || role === "store_manager" || role === "lead_technician" || role === "technician";
   const canDeleteAttachments = isAdmin || role === "manager" || role === "store_manager";
   const [items, setItems] = useState<Item[]>([]);
+  const [stockRequests, setStockRequests] = useState<StockRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -308,24 +327,28 @@ export default function InventoryPage() {
       const maxPrice = toFloat(filterMaxPrice);
       const minQoh = toInt(filterMinQoh);
       const maxQoh = toInt(filterMaxQoh);
-      const data = await listItems({
-        page,
-        page_size: pageSize,
-        q: q || undefined,
-        sort,
-        direction,
-        include_inactive: true,
-        stock_state: stockState,
-        category_id: filterCategoryId === "" ? undefined : Number(filterCategoryId),
-        location_id: filterLocationId === "" ? undefined : Number(filterLocationId),
-        supplier_id: filterSupplierId === "" ? undefined : Number(filterSupplierId),
-        tracking_type: filterTrackingType === "" ? undefined : filterTrackingType,
-        min_unit_price: canViewInventoryPrices && minPrice != null ? minPrice : undefined,
-        max_unit_price: canViewInventoryPrices && maxPrice != null ? maxPrice : undefined,
-        min_quantity_on_hand: minQoh == null ? undefined : minQoh,
-        max_quantity_on_hand: maxQoh == null ? undefined : maxQoh,
-      });
+      const [data, requestRows] = await Promise.all([
+        listItems({
+          page,
+          page_size: pageSize,
+          q: q || undefined,
+          sort,
+          direction,
+          include_inactive: true,
+          stock_state: stockState,
+          category_id: filterCategoryId === "" ? undefined : Number(filterCategoryId),
+          location_id: filterLocationId === "" ? undefined : Number(filterLocationId),
+          supplier_id: filterSupplierId === "" ? undefined : Number(filterSupplierId),
+          tracking_type: filterTrackingType === "" ? undefined : filterTrackingType,
+          min_unit_price: canViewInventoryPrices && minPrice != null ? minPrice : undefined,
+          max_unit_price: canViewInventoryPrices && maxPrice != null ? maxPrice : undefined,
+          min_quantity_on_hand: minQoh == null ? undefined : minQoh,
+          max_quantity_on_hand: maxQoh == null ? undefined : maxQoh,
+        }),
+        canViewItemRequesters ? listRequests() : Promise.resolve([] as StockRequest[]),
+      ]);
       setItems(data.items);
+      setStockRequests(requestRows);
       setTotal(data.total);
       await loadReorder();
     } catch (err: any) {
@@ -333,7 +356,7 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [canViewInventoryPrices, direction, loadReorder, lowOnly, inStockOnly, outOfStockOnly, filterCategoryId, filterLocationId, filterSupplierId, filterTrackingType, filterMinPrice, filterMaxPrice, filterMinQoh, filterMaxQoh, page, pageSize, q, sort]);
+  }, [canViewInventoryPrices, canViewItemRequesters, direction, loadReorder, lowOnly, inStockOnly, outOfStockOnly, filterCategoryId, filterLocationId, filterSupplierId, filterTrackingType, filterMinPrice, filterMaxPrice, filterMinQoh, filterMaxQoh, page, pageSize, q, sort]);
 
   useEffect(() => {
     refresh();
@@ -544,6 +567,53 @@ export default function InventoryPage() {
     () => new Map(suppliers.map((s) => [s.name.toLowerCase(), s.id])),
     [suppliers]
   );
+  const itemRequestSummaryByPartId = useMemo(() => {
+    const visibleStatuses = new Set(["PENDING", "APPROVED", "NOT_ISSUED"]);
+    const map = new Map<number, ItemRequestSummary[]>();
+    for (const request of stockRequests) {
+      const status = String(request.status || "").toUpperCase();
+      if (!visibleStatuses.has(status)) continue;
+      const requestedBy =
+        request.requested_by_name || request.requested_by_email || `User #${request.requested_by_user_id}`;
+      for (const line of request.lines ?? []) {
+        const summary: ItemRequestSummary = {
+          requestId: request.id,
+          requestedBy,
+          quantity: line.quantity,
+          status,
+          notIssuedReason: request.not_issued_reason,
+        };
+        map.set(line.part_id, [...(map.get(line.part_id) ?? []), summary]);
+      }
+    }
+    return map;
+  }, [stockRequests]);
+
+  const renderRequestersForItem = useCallback(
+    (itemId: number) => {
+      const summaries = itemRequestSummaryByPartId.get(itemId) ?? [];
+      if (summaries.length === 0) return <Typography.Text type="secondary">-</Typography.Text>;
+      return (
+        <Space direction="vertical" size={2}>
+          {summaries.slice(0, 3).map((summary, index) => (
+            <Space key={`${summary.requestId}-${summary.quantity}-${summary.status}-${index}`} size={4} wrap>
+              <Typography.Text>{summary.requestedBy}</Typography.Text>
+              <Tag color={requestStatusColor(summary.status)} title={summary.notIssuedReason || undefined}>
+                {summary.status.replace(/_/g, " ")}
+              </Tag>
+              <Typography.Text type="secondary">
+                {formatRequestRef(summary.requestId)} x{summary.quantity}
+              </Typography.Text>
+            </Space>
+          ))}
+          {summaries.length > 3 ? (
+            <Typography.Text type="secondary">+{summaries.length - 3} more</Typography.Text>
+          ) : null}
+        </Space>
+      );
+    },
+    [itemRequestSummaryByPartId]
+  );
 
   const itemColumns = useMemo(() => {
     const label = (text: string, field: SortField) => (
@@ -587,6 +657,14 @@ export default function InventoryPage() {
         )
       },
       { title: label("Min", "min_quantity"), dataIndex: "min_quantity", key: "min_quantity" },
+      canViewItemRequesters
+        ? {
+            title: "Requested by",
+            key: "requested_by",
+            width: 280,
+            render: (_: unknown, item: Item) => renderRequestersForItem(item.id),
+          }
+        : null,
       canViewInventoryPrices
         ? { title: "Unit price", dataIndex: "unit_price", key: "unit_price", render: (value: number | null) => formatMoney(value) }
         : null,
@@ -696,7 +774,7 @@ export default function InventoryPage() {
         }
       }
     ].filter(Boolean) as any;
-  }, [canApproveDeletion, canViewInventoryPrices, categoryNameById, direction, lowOnly, refresh, saving, sort, suppliersById]);
+  }, [canApproveDeletion, canViewInventoryPrices, canViewItemRequesters, categoryNameById, direction, lowOnly, refresh, renderRequestersForItem, saving, sort, suppliersById]);
 
   const mobileItemCards = useMemo(
     () =>
@@ -734,6 +812,12 @@ export default function InventoryPage() {
               </div>
             ) : null}
           </div>
+          {canViewItemRequesters ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="mobile-metric-label">Requested by</div>
+              {renderRequestersForItem(item.id)}
+            </div>
+          ) : null}
           <Space wrap style={{ marginTop: 10 }}>
             <Button size="middle" onClick={() => startEdit(item)}>
               Edit
@@ -750,7 +834,7 @@ export default function InventoryPage() {
           </Space>
         </Card>
       )),
-    [canViewInventoryPrices, items]
+    [canViewInventoryPrices, canViewItemRequesters, items, renderRequestersForItem]
   );
 
   const reorderColumns = useMemo(
@@ -2163,7 +2247,7 @@ export default function InventoryPage() {
               dataSource={items}
               columns={itemColumns}
               size="small"
-              scroll={{ x: 980 }}
+              scroll={{ x: canViewItemRequesters ? 1220 : 980 }}
               pagination={false}
               locale={{
                 emptyText: lowOnly ? (

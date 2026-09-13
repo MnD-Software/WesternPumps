@@ -1408,6 +1408,8 @@ export default function RequestsPage() {
               <Typography.Text type="secondary">Issued items came back (good/faulty return flow completed).</Typography.Text>
               <Tag color="default">SOLD</Tag>
               <Typography.Text type="secondary">Issued items were fully consumed/used and not expected back.</Typography.Text>
+              <Tag color="orange">NOT ISSUED</Tag>
+              <Typography.Text type="secondary">Store marked an approved request as not issued.</Typography.Text>
             </Space>
           ) : null}
           <Table

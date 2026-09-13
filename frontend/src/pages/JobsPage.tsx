@@ -374,10 +374,7 @@ export default function JobsPage() {
         title: "Site",
         key: "site",
         responsive: ["lg" as const],
-        render: (_: unknown, job: Job) =>
-          job.site_location_label || (job.site_latitude != null && job.site_longitude != null
-            ? `${Number(job.site_latitude).toFixed(5)}, ${Number(job.site_longitude).toFixed(5)}`
-            : "-"),
+        render: (_: unknown, job: Job) => job.site_location_label || "-",
       },
       {
         title: "Status",
@@ -695,12 +692,7 @@ export default function JobsPage() {
             </div>
             <div>
               <Typography.Text type="secondary">Site</Typography.Text>
-              <div>
-                {detailJob.site_location_label || "No label"}{" "}
-                {detailJob.site_latitude != null && detailJob.site_longitude != null
-                  ? `(${Number(detailJob.site_latitude).toFixed(6)}, ${Number(detailJob.site_longitude).toFixed(6)})`
-                  : ""}
-              </div>
+              <div>{detailJob.site_location_label || "No label"}</div>
             </div>
             <div>
               <Typography.Text type="secondary">Description</Typography.Text>

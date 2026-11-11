@@ -2,6 +2,7 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 SQLAlchemy>=2.0
 PyMySQL>=1.1
+psycopg[binary]>=3.2
 psycopg2-binary>=2.9
 pydantic-settings>=2.2
 python-jose[cryptography]>=3.3
